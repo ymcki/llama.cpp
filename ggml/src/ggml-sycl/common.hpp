@@ -13,8 +13,10 @@
 #ifndef GGML_SYCL_COMMON_HPP
 #define GGML_SYCL_COMMON_HPP
 
+#include <cstddef>
 #include <fstream>
 #include <iostream>
+#include <string>
 
 #include "dpct/helper.hpp"
 #include "ggml-sycl.h"
@@ -44,11 +46,20 @@ extern int g_ggml_sycl_debug;
 extern int g_ggml_sycl_disable_optimize;
 extern int g_ggml_sycl_prioritize_dmmv;
 
-#define GGML_SYCL_DEBUG(...)        \
-  do {                              \
-    if (g_ggml_sycl_debug)          \
-      fprintf(stderr, __VA_ARGS__); \
-  } while (0)
+#if defined(__clang__) && __has_builtin(__builtin_expect)
+// Hint the optimizer to pipeline the more likely following instruction in branches
+#    define LIKELY(expr)   __builtin_expect(expr, true)
+#    define UNLIKELY(expr) __builtin_expect(expr, false)
+#else
+#    define LIKELY(expr)   (expr)
+#    define UNLIKELY(expr) (expr)
+#endif
+
+#define GGML_SYCL_DEBUG(...)              \
+    do {                                  \
+        if (UNLIKELY(g_ggml_sycl_debug))  \
+            fprintf(stderr, __VA_ARGS__); \
+    } while (0)
 
 #define CHECK_TRY_ERROR(expr)                                            \
   [&]() {                                                                \
@@ -138,8 +149,6 @@ typedef sycl::float2 dfloat2;
 
 #define MMVQ_MAX_BATCH_SIZE  8
 
-static const int8_t kvalues_iq4nl[16]={-127, -104, -83, -65, -49, -35, -22, -10, 1, 13, 25, 38, 53, 69, 89, 113};
-
 static int g_all_sycl_device_count = -1;
 static bool g_ggml_backend_sycl_buffer_type_initialized = false;
 
@@ -186,11 +195,13 @@ struct optimize_feature {
 
 struct sycl_device_info {
     int     cc;                 // compute capability
-    // int     nsm;                // number of streaming multiprocessors
+    int nsm; // number of streaming multiprocessors (CUDA) maps to the maximum
+             // number of compute units on a SYCL device.
     // size_t  smpb;               // max. shared memory per block
+    size_t  smpbo;              // max. shared memory per block (with opt-in)
     bool    vmm;                // virtual memory support
     size_t  total_vram;
-    sycl_hw_info hw_info;
+    //sycl_hw_info hw_info;     \\ device id and aarch, currently not used
     optimize_feature opt_feature;
 };
 
@@ -276,29 +287,6 @@ struct ggml_tensor_extra_gpu {
 };
 
 void release_extra_gpu(ggml_tensor_extra_gpu * extra, std::vector<queue_ptr> streams={});
-
-inline optimize_feature check_gpu_optimize_feature(syclex::architecture &arch) {
-    optimize_feature opt;
-
-    opt.reorder =
-        (arch == syclex::architecture::intel_gpu_dg1 ||
-         arch == syclex::architecture::intel_gpu_acm_g10 ||
-         arch == syclex::architecture::intel_gpu_acm_g11 ||
-         arch == syclex::architecture::intel_gpu_acm_g12 ||
-         arch == syclex::architecture::intel_gpu_pvc ||
-         arch == syclex::architecture::intel_gpu_pvc_vg ||
-         arch == syclex::architecture::intel_gpu_mtl_u ||
-         arch == syclex::architecture::intel_gpu_mtl_s ||
-         arch == syclex::architecture::intel_gpu_mtl_h ||
-         arch == syclex::architecture::intel_gpu_arl_u ||
-         arch == syclex::architecture::intel_gpu_arl_s ||
-         arch == syclex::architecture::intel_gpu_arl_h ||
-         arch == syclex::architecture::intel_gpu_bmg_g21 ||
-         arch == syclex::architecture::intel_gpu_lnl_m
-        );
-
-    return opt;
-}
 
 namespace sycl_ex = sycl::ext::oneapi::experimental;
 struct ggml_backend_sycl_context {
@@ -430,13 +418,6 @@ static __dpct_inline__ float warp_reduce_sum(float x,
     const sycl::nd_item<3>& item_ct1) {
 #pragma unroll
     for (int mask = WARP_SIZE / 2; mask > 0; mask >>= 1) {
-        /*
-        DPCT1096:98: The right-most dimension of the work-group used in the SYCL
-        kernel that calls this function may be less than "32". The function
-        "dpct::permute_sub_group_by_xor" may return an unexpected result on the
-        CPU device. Modify the size of the work-group to ensure that the value
-        of the right-most dimension is a multiple of "32".
-        */
         x += dpct::permute_sub_group_by_xor(item_ct1.get_sub_group(), x, mask);
     }
     return x;
@@ -454,21 +435,84 @@ warp_reduce_sum(sycl::float2 a, const sycl::nd_item<3>& item_ct1) {
     return a;
 }
 
+template <int width = WARP_SIZE>
+static __dpct_inline__ int warp_reduce_sum(int x) {
+  return sycl::reduce_over_group(
+      sycl::ext::oneapi::this_work_item::get_sub_group(), x, sycl::plus<>());
+}
+
+template <int width = WARP_SIZE>
+static __dpct_inline__ float warp_reduce_sum(float x) {
+#pragma unroll
+  for (int offset = width / 2; offset > 0; offset >>= 1) {
+    x += dpct::permute_sub_group_by_xor(
+        sycl::ext::oneapi::this_work_item::get_sub_group(), x, offset, width);
+  }
+  return x;
+}
+
+template <int width = WARP_SIZE>
+static __dpct_inline__ sycl::float2 warp_reduce_sum(sycl::float2 a) {
+#pragma unroll
+  for (int offset = width / 2; offset > 0; offset >>= 1) {
+    a.x() += dpct::permute_sub_group_by_xor(
+        sycl::ext::oneapi::this_work_item::get_sub_group(), a.x(), offset,
+        width);
+    a.y() += dpct::permute_sub_group_by_xor(
+        sycl::ext::oneapi::this_work_item::get_sub_group(), a.y(), offset,
+        width);
+  }
+  return a;
+}
+
+template <int width = WARP_SIZE>
+static __dpct_inline__ sycl::half2 warp_reduce_sum(sycl::half2 a) {
+#pragma unroll
+  for (int offset = width / 2; offset > 0; offset >>= 1) {
+    a = a + dpct::permute_sub_group_by_xor(
+                sycl::ext::oneapi::this_work_item::get_sub_group(), a, offset,
+                width);
+  }
+  return a;
+}
+
+static constexpr int ggml_sycl_get_physical_warp_size() {
+  // todo: for old iGPU + dGPU case, need to be changed.
+  return WARP_SIZE;
+}
+
+template <int width = WARP_SIZE>
+static __dpct_inline__ float warp_reduce_max(float x) {
+#pragma unroll
+  for (int offset = width / 2; offset > 0; offset >>= 1) {
+    x = sycl::fmax(x, dpct::permute_sub_group_by_xor(
+                          sycl::ext::oneapi::this_work_item::get_sub_group(), x,
+                          offset, width));
+  }
+  return x;
+}
+
 static __dpct_inline__ float warp_reduce_max(float x,
     const sycl::nd_item<3>& item_ct1) {
 #pragma unroll
     for (int mask = WARP_SIZE / 2; mask > 0; mask >>= 1) {
-        /*
-        DPCT1096:97: The right-most dimension of the work-group used in the SYCL
-        kernel that calls this function may be less than "32". The function
-        "dpct::permute_sub_group_by_xor" may return an unexpected result on the
-        CPU device. Modify the size of the work-group to ensure that the value
-        of the right-most dimension is a multiple of "32".
-        */
         x = sycl::fmax(x, dpct::permute_sub_group_by_xor(
             item_ct1.get_sub_group(), x, mask));
     }
     return x;
+}
+
+/* Helper for Computing the linear offset of a ggml_tensor given
+per-dimension sizes, strides, and indices */
+template<int N>
+__dpct_inline__ size_t calculate_offset(const std::array<int, N> & strides, const std::array<int, N> & indices) {
+    size_t offset = 0;
+#pragma unroll
+    for (int i = 0; i < N; i++) {
+        auto index_i = indices[i];
+        offset += strides[i] * index_i;
+    }
+    return offset;
 }
 
 // Helper for vec loading aligned data
@@ -490,4 +534,87 @@ constexpr size_t ceil_div(const size_t m, const size_t n) {
 }
 
 bool gpu_has_xmx(sycl::device &dev);
+
+template <int N, class T> std::string debug_get_array_str(const std::string & prefix, const T array[N]) {
+    if (LIKELY(!g_ggml_sycl_debug)) {
+        return "";
+    }
+    std::stringstream ss;
+    ss << prefix << "=[";
+    for (std::size_t i = 0; i < N - 1; ++i) {
+        ss << array[i] << ", ";
+    }
+    if constexpr (N > 0) {
+        ss << array[N - 1];
+    }
+    ss << "]";
+    return ss.str();
+}
+
+inline std::string debug_get_tensor_str(const std::string &prefix,
+        const ggml_tensor *tensor, const std::string &suffix = "") {
+    std::stringstream ss;
+    if (LIKELY(!g_ggml_sycl_debug)) { return ss.str(); }
+    ss << prefix.c_str() << "=";
+    if (tensor) {
+        ss << "'" << tensor->name << "':type=" << ggml_type_name(tensor->type);
+        ss << debug_get_array_str<GGML_MAX_DIMS>(";ne", tensor->ne);
+        ss << debug_get_array_str<GGML_MAX_DIMS>(";nb", tensor->nb);
+
+        if (!ggml_is_contiguous(tensor)) { ss << ";strided"; }
+        if (ggml_is_permuted(tensor)) { ss << ";permuted"; }
+    } else {
+        ss << "nullptr";
+    }
+    ss << suffix;
+    return ss.str();
+}
+
+// Use scope_op_debug_print to log operations coming from running a model
+struct scope_op_debug_print {
+    // Use string_views to avoid the cost of creating a string and concatenating them
+    // string_views must be alive for as long as the object is alive
+    // scope_op_debug_print are used with string literals in practice which are stored in constant space so always accessible
+    scope_op_debug_print(const std::string_view & func, const std::string_view & func_suffix, const ggml_tensor * dst,
+                         std::size_t num_src, const std::string_view & suffix = "") :
+        func(func),
+        func_suffix(func_suffix) {
+        if (LIKELY(!g_ggml_sycl_debug)) {
+            return;
+        }
+        GGML_SYCL_DEBUG("[SYCL][OP] call %s%s:", func.data(), func_suffix.data());
+        GGML_SYCL_DEBUG("%s", debug_get_tensor_str(" dst", dst).c_str());
+        if (dst) {
+            for (std::size_t i = 0; i < num_src; ++i) {
+                GGML_SYCL_DEBUG("%s", debug_get_tensor_str("\tsrc" + std::to_string(i), dst->src[i]).c_str());
+            }
+        }
+        GGML_SYCL_DEBUG("%s\n", suffix.data());
+    }
+
+    scope_op_debug_print(const std::string_view & func, const ggml_tensor * dst, std::size_t num_src,
+                         const std::string_view & suffix = "") :
+        scope_op_debug_print(func, "", dst, num_src, suffix) {}
+
+    ~scope_op_debug_print() { GGML_SYCL_DEBUG("[SYCL][OP] call %s%s done\n", func.data(), func_suffix.data()); }
+
+  private:
+    std::string_view func;
+    std::string_view func_suffix;
+};
+
+static __dpct_inline__ float get_alibi_slope(const float    max_bias,
+                                             const uint32_t h,
+                                             const uint32_t n_head_log2,
+                                             const float    m0,
+                                             const float    m1) {
+    if (max_bias <= 0.0f) {
+        return 1.0f;
+    }
+    const float base = h < n_head_log2 ? m0 : m1;
+    const int   exph = h < n_head_log2 ? h + 1 : 2*(h - n_head_log2) + 1;
+
+    return dpct::pow(base, exph);
+}
+
 #endif // GGML_SYCL_COMMON_HPP

@@ -1,8 +1,8 @@
-ARG ONEAPI_VERSION=2025.1.1-0-devel-ubuntu24.04
+ARG ONEAPI_VERSION=2025.2.2-0-devel-ubuntu24.04
 
 ## Build Image
 
-FROM intel/oneapi-basekit:$ONEAPI_VERSION AS build
+FROM intel/deep-learning-essentials:$ONEAPI_VERSION AS build
 
 ARG GGML_SYCL_F16=OFF
 RUN apt-get update && \
@@ -31,7 +31,7 @@ RUN mkdir -p /app/full \
     && cp requirements.txt /app/full \
     && cp .devops/tools.sh /app/full/tools.sh
 
-FROM intel/oneapi-basekit:$ONEAPI_VERSION AS base
+FROM intel/deep-learning-essentials:$ONEAPI_VERSION AS base
 
 RUN apt-get update \
     && apt-get install -y libgomp1 curl\
@@ -49,19 +49,23 @@ COPY --from=build /app/full /app
 
 WORKDIR /app
 
-RUN apt-get update \
-    && apt-get install -y \
-    git \
-    python3 \
-    python3-pip \
-    && pip install --upgrade pip setuptools wheel \
-    && pip install -r requirements.txt \
-    && apt autoremove -y \
-    && apt clean -y \
-    && rm -rf /tmp/* /var/tmp/* \
-    && find /var/cache/apt/archives /var/lib/apt/lists -not -name lock -type f -delete \
-    && find /var/cache -type f -delete
+RUN apt-get update && \
+    apt-get install -y \
+        git \
+        python3 \
+        python3-pip \
+        python3-venv && \
+    python3 -m venv /opt/venv && \
+    . /opt/venv/bin/activate && \
+    pip install --upgrade pip setuptools wheel && \
+    pip install -r requirements.txt && \
+    apt autoremove -y && \
+    apt clean -y && \
+    rm -rf /tmp/* /var/tmp/* && \
+    find /var/cache/apt/archives /var/lib/apt/lists -not -name lock -type f -delete && \
+    find /var/cache -type f -delete
 
+ENV PATH="/opt/venv/bin:$PATH"
 
 ENTRYPOINT ["/app/tools.sh"]
 
