@@ -438,7 +438,6 @@ class TensorNameMap:
             "model.layers.{bid}.block_sparse_moe.e_score_correction",       # minimax-m2
             "backbone.layers.{bid}.mixer.gate.e_score_correction",          # nemotron-h-moe
             "model.layers.{bid}.mlp.e_score_correction",                    # exaone-moe
-            "model.layers.{bid}.block_sparse_moe.gate.e_score_correction_bias",  # kimi
         ),
 
         # Feed-forward up
@@ -556,7 +555,6 @@ class TensorNameMap:
 
         MODEL_TENSOR.FFN_GATE_CHEXP: (
             "model.layers.{bid}.mlp.chunk_experts.gate_proj",           # grovemoe
-            "model.layers.{bid}.block_sparse_moe.shared_experts.gate_proj", # kimi
         ),
 
         # Feed-forward down
@@ -764,6 +762,7 @@ class TensorNameMap:
             "model.layers.layers.{bid}.mixer.dt_proj",  # plamo2
             "model.layers.{bid}.linear_attn.dt_proj",   # qwen3next
             "backbone.layers.{bid}.mixer.dt",           # nemotron-h-moe
+            "model.layers.{bid}.self_attn.dt_proj",     # kimi
         ),
 
         MODEL_TENSOR.SSM_DT_NORM: (
@@ -777,6 +776,7 @@ class TensorNameMap:
             "model.layers.{bid}.mamba.A_log",         # jamba falcon-h1 granite-hybrid
             "model.layers.layers.{bid}.mixer.A_log",  # plamo2
             "model.layers.{bid}.linear_attn.A_log",   # qwen3next
+            "model.layers.{bid}.self_attn.A_log",     # kimi
         ),
 
         MODEL_TENSOR.SSM_B_NORM: (
@@ -836,17 +836,11 @@ class TensorNameMap:
         MODEL_TENSOR.SSM_BETA: (
             "model.layers.{bid}.self_attn.b_proj",
         ),
-        MODEL_TENSOR.SSM_A_LOG: (
-            "model.layers.{bid}.self_attn.A_log",
-        ),
         MODEL_TENSOR.SSM_G_A: (
             "model.layers.{bid}.self_attn.g_a_proj",
         ),
         MODEL_TENSOR.SSM_G_B: (
             "model.layers.{bid}.self_attn.g_b_proj",
-        ),
-        MODEL_TENSOR.SSM_DT_B: (
-            "model.layers.{bid}.self_attn.dt_bias",
         ),
         MODEL_TENSOR.TIME_MIX_W0: (
             "model.layers.{bid}.attention.w0",            # rwkv7

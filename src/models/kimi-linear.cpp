@@ -127,7 +127,7 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
 
         // Check layer type by checking which tensors exist
         // KDA layers have ssm_a_log tensor, MLA layers have wkv_a_mqa tensor
-        bool is_kda = (layer.ssm_a_log != nullptr);
+        bool is_kda = (layer.ssm_a != nullptr);
         bool is_mla = (layer.wkv_a_mqa != nullptr);
 
         if (is_kda) {
@@ -152,12 +152,10 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
             g1 = ggml_softplus(ctx0, g1);
             g1 = ggml_reshape_3d(ctx0, g1, head_dim, n_head, n_tokens);
 
-            // A_log shape is [1, n_head] or [1, n_head, 1, 1], need to broadcast to [head_dim, n_head, n_tokens]
-            // First compute -exp(A_log), then reshape for broadcasting
-            ggml_tensor * A_neg_exp = ggml_neg(ctx0, ggml_exp(ctx0, layer.ssm_a_log));
+            // A_log shape is [1, n_head] or [1, n_head, 1, 1], need to broadcast to [head_dim, n_head, n_tokens]. No need to -exp(a_log) because it was done in convert_hf_to_gguf.py
             // Reshape to [1, n_head, 1] for broadcasting with g1 [head_dim, n_head, n_tokens]
-            A_neg_exp = ggml_reshape_3d(ctx0, A_neg_exp, 1, n_head, 1);
-            g1 = ggml_mul(ctx0, g1, A_neg_exp);
+            ggml_tensor * A = ggml_reshape_3d(ctx0, layer.ssm_a, 1, n_head, 1);
+            g1 = ggml_mul(ctx0, g1, A);
             cb(g1, "kda_g1", il);
 
             // Compute beta (mixing coefficient)

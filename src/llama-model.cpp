@@ -2468,7 +2468,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,               hparams.n_expert_shared, false);
                 ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT,         hparams.n_layer_dense_lead, false);
                 ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,              hparams.expert_weights_scale, false);
-                ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func, false);
+                ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func);
 
                 switch (hparams.n_layer) {
                     case 27: type = LLM_TYPE_48B_A3B; break; // Kimi-Linear-48B-A3B
@@ -6839,14 +6839,14 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                              // b_proj (beta mixing coefficient)
                              layer.ssm_beta = create_tensor(tn(LLM_TENSOR_SSM_BETA, "weight", i), {n_embd, n_head}, 0);
 
-                             // A_log - Shape in GGUF: [1, num_heads, 1, 1] (4D) or [1, num_heads] (2D after quantization)
-                             layer.ssm_a_log = create_tensor(tn(LLM_TENSOR_SSM_A_LOG, i), {1, n_head, 1, 1}, TENSOR_NOT_REQUIRED);
-                             if (!layer.ssm_a_log) {
-                                 layer.ssm_a_log = create_tensor(tn(LLM_TENSOR_SSM_A_LOG, i), {1, n_head}, 0);
+                             // A_log - Shape in GGUF: [1, num_heads, 1, 1] (4D) or [1, num_heads] (2D after quantization) Note: -exp(A_log) is applied in convert_hf_to_gguf.py
+                             layer.ssm_a = create_tensor(tn(LLM_TENSOR_SSM_A, i), {1, n_head, 1, 1}, TENSOR_NOT_REQUIRED);
+                             if (!layer.ssm_a) {
+                                 layer.ssm_a = create_tensor(tn(LLM_TENSOR_SSM_A, i), {1, n_head}, 0);
                              }
 
                              // dt_bias - shape [n_embd_head_k_kda * n_head] = [4096]
-                             layer.ssm_dt_b = create_tensor(tn(LLM_TENSOR_SSM_DT_B, i), {n_embd_head_k_kda * n_head}, 0);
+                             layer.ssm_dt_b = create_tensor(tn(LLM_TENSOR_SSM_DT, "bias", i), {n_embd_head_k_kda * n_head}, 0);
 
                              // g_a_proj, g_b_proj (output gate)
                              layer.ssm_g_a = create_tensor(tn(LLM_TENSOR_SSM_G_A, "weight", i), {n_embd, n_embd_head_k_kda}, 0);
@@ -6918,11 +6918,7 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                             layer.ffn_up_shexp   = create_tensor(tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, n_ff_shexp_actual}, TENSOR_NOT_REQUIRED);
 
                             // exp_probs_b (e_score_correction_bias in vLLM)
-                            // Try "bias" first (standard), then "weight" (for compatibility)
-                            layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, TENSOR_NOT_REQUIRED);
-                            if (!layer.ffn_exp_probs_b) {
-                                layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "weight", i), {n_expert}, TENSOR_NOT_REQUIRED);
-                            }
+                            layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "weight", i), {n_expert}, 0);
                         }
                     }
                 } break;

@@ -5159,17 +5159,14 @@ class KimiLinearModel(TextModel):
 
         super().set_gguf_parameters()
         self.gguf_writer.add_vocab_size(self.hparams["vocab_size"])
-        self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
 
-        # Use find_hparam for context length
-        # Kimi uses model_max_length
-        n_ctx = self.find_hparam(["max_position_embeddings", "model_max_length", "n_ctx", "n_positions"], optional=True)
-        if n_ctx is not None:
-            self.gguf_writer.add_context_length(n_ctx)
-        else:
-            # Default to 4096 if not found
-            logger.warning("No context length found in config, defaulting to 4096")
-            self.gguf_writer.add_context_length(4096)
+        if (score_func := self.find_hparam(["moe_router_activation_func"], optional=True)) is not None:
+            if score_func == "sigmoid":
+                self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
+            elif score_func == "softmax":
+                self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SOFTMAX)
+            else:
+                raise ValueError(f"Unsupported expert score gating function value: {score_func}")
 
         # KDA & MLA params
         # Get ssm_d_conv from linear_attn_config.short_conv_kernel_size or ssm_d_conv
@@ -5226,7 +5223,7 @@ class KimiLinearModel(TextModel):
             self.gguf_writer.add_value_length_mla(v_head_dim)
 
         # Rotation - use qk_rope_head_dim for Kimi
-        rope_dim = self.hparams.get("qk_rope_head_dim") or self.hparams.get("n_rot")
+        rope_dim = self.find_hparam(["qk_rope_head_dim", "n_rot"])
         if rope_dim is not None:
             self.gguf_writer.add_rope_dimension_count(rope_dim)
         else:
@@ -5234,41 +5231,30 @@ class KimiLinearModel(TextModel):
             head_dim = self.hparams["hidden_size"] // self.hparams["num_attention_heads"]
             self.gguf_writer.add_rope_dimension_count(head_dim)
 
-        # Copied from Qwen2Moe as this model inherits parts of it
-        # YaRN is not enabled by default
-        # To enable it, please refer to this guide: https://huggingface.co/Qwen/Qwen3-30B-A3B#processing-long-texts
-        rope_scaling = self.hparams.get("rope_scaling") or {}
-        if rope_scaling.get("rope_type", rope_scaling.get("type")) == "yarn" and "factor" in rope_scaling:
-            self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.YARN)
-            self.gguf_writer.add_rope_scaling_factor(rope_scaling["factor"])
-            self.gguf_writer.add_rope_scaling_orig_ctx_len(rope_scaling["original_max_position_embeddings"])
-
-        # MoE params
-        n_experts = self.hparams.get("num_local_experts", self.hparams.get("num_experts"))
+        n_experts = self.find_hparam(["num_experts"])
         if n_experts is not None:
             self.gguf_writer.add_expert_count(n_experts)
-        # Support both num_experts_per_tok and num_experts_per_token
-        n_experts_used = self.hparams.get("num_experts_per_tok", self.hparams.get("num_experts_per_token"))
+        n_experts_used = self.find_hparam(["num_experts_per_token"])
         if n_experts_used is not None:
             self.gguf_writer.add_expert_used_count(n_experts_used)
 
         # moe_intermediate_size (1024 for Kimi)
-        moe_intermediate_size = self.hparams.get("moe_intermediate_size")
+        moe_intermediate_size = self.find_hparam(["moe_intermediate_size"])
         if moe_intermediate_size is not None:
             self.gguf_writer.add_expert_feed_forward_length(moe_intermediate_size)
 
         # num_shared_experts (1 for Kimi)
-        num_shared_experts = self.hparams.get("num_shared_experts")
+        num_shared_experts = self.find_hparam(["num_shared_experts"])
         if num_shared_experts is not None:
             self.gguf_writer.add_expert_shared_count(num_shared_experts)
 
         # first_k_dense_replace (1 for Kimi - first layer uses dense MLP)
-        first_k_dense_replace = self.hparams.get("first_k_dense_replace")
+        first_k_dense_replace = self.find_hparam(["first_k_dense_replace"])
         if first_k_dense_replace is not None:
             self.gguf_writer.add_leading_dense_block_count(first_k_dense_replace)
 
         # Routed scaling factor (expert_weights_scale = 2.446 for Kimi)
-        routed_scaling_factor = self.hparams.get("routed_scaling_factor")
+        routed_scaling_factor = self.find_hparam(["routed_scaling_factor"])
         if routed_scaling_factor is not None:
             self.gguf_writer.add_expert_weights_scale(routed_scaling_factor)
 
@@ -5301,18 +5287,19 @@ class KimiLinearModel(TextModel):
                 data_torch = data_torch.reshape(1, d_inner, 1, d_conv)
                 logger.info(f"Reshaped conv1d weight {name}: [d_inner={d_inner}, 1, d_conv={d_conv}] -> numpy {tuple(data_torch.shape)} -> ggml ne=[{d_conv}, 1, {d_inner}, 1]")
 
-        # Handle A_log: HF stores as [1, 1, num_heads, 1]
-        # llama.cpp expects ggml ne = [1, num_heads, 1, 1]
-        # GGUF reverses numpy shape: numpy (1, 1, num_heads, 1) -> ggml ne = [1, num_heads, 1, 1]
-        # So no transformation needed! The shapes already match after GGUF reversal.
-        if name.endswith(".A_log"):
-            if data_torch.ndim == 4:
-                logger.info(f"A_log {name}: numpy {tuple(data_torch.shape)} -> ggml ne={list(reversed(data_torch.shape))}")
-
         # Kimi specific bias
         if name.endswith("e_score_correction_bias"):
             new_name = self.format_tensor_name(gguf.MODEL_TENSOR.FFN_EXP_PROBS_B, bid)
             return [(new_name, data_torch)]
+
+        # Handle A_log: iHF stores as [1, 1, num_heads, 1]
+        # llama.cpp expects ggml ne = [1, num_heads, 1, 1]
+        # GGUF reverses numpy shape: numpy (1, 1, num_heads, 1) -> ggml ne = [1, num_heads, 1, 1]
+        if name.endswith(".A_log"):
+            data_torch = -torch.exp(data_torch)
+        if name.endswith(".dt_bias"):
+            name = name.rpartition(".dt_bias")[0] + ".dt_proj.bias"
+            logger.info("Changed dt_bias to dt_proj.bias")
 
         # process the experts separately
         if name.find("block_sparse_moe.experts") != -1:
