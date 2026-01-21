@@ -5186,21 +5186,16 @@ class KimiLinearModel(TextModel):
         assert len(_num_kv_heads) == self.hparams["num_hidden_layers"]
         self.gguf_writer.add_head_count_kv(_num_kv_heads)
 
-        ssm_d_conv = self.hparams.get("ssm_d_conv") or linear_attn_config.get("short_conv_kernel_size")
-        if ssm_d_conv is not None:
+        if (ssm_d_conv := linear_attn_config.get("short_conv_kernel_size")) is not None:
             self.gguf_writer.add_ssm_conv_kernel(ssm_d_conv)
-        kda_head_dim = self.hparams.get("kda_head_dim") or linear_attn_config.get("head_dim")
-        if kda_head_dim is not None:
+        if (kda_head_dim := linear_attn_config.get("head_dim")) is not None:
             self.gguf_writer.add_kda_head_dim(kda_head_dim)
 
         # MLA params - use add_* methods that handle arch substitution
         # Support both HuggingFace naming (q_lora_rank, kv_lora_rank) and internal naming (n_lora_q, n_lora_kv)
-        q_lora_rank = self.hparams.get("q_lora_rank", self.hparams.get("n_lora_q"))
-        kv_lora_rank = self.hparams.get("kv_lora_rank", self.hparams.get("n_lora_kv"))
-
-        if q_lora_rank is not None:
+        if (q_lora_rank := self.find_hparam(["q_lora_rank", "n_lora_q"], optional=False)) is not None:
             self.gguf_writer.add_q_lora_rank(q_lora_rank)
-        if kv_lora_rank is not None:
+        if (kv_lora_rank := self.find_hparam(["kv_lora_rank", "n_lora_kv"], optional=False)) is not None:
             self.gguf_writer.add_kv_lora_rank(kv_lora_rank)
 
         # MLA head dimensions
@@ -5226,39 +5221,32 @@ class KimiLinearModel(TextModel):
             self.gguf_writer.add_value_length_mla(v_head_dim)
 
         # Rotation - use qk_rope_head_dim for Kimi
-        rope_dim = self.find_hparam(["qk_rope_head_dim", "n_rot"])
-        if rope_dim is not None:
+        if (rope_dim := self.find_hparam(["qk_rope_head_dim", "n_rot"], optional=True)) is not None:
             self.gguf_writer.add_rope_dimension_count(rope_dim)
         else:
             # Default to head_dim
             head_dim = self.hparams["hidden_size"] // self.hparams["num_attention_heads"]
             self.gguf_writer.add_rope_dimension_count(head_dim)
 
-        n_experts = self.find_hparam(["num_experts"])
-        if n_experts is not None:
+        if (n_experts := self.find_hparam(["num_experts"], optional=False)) is not None:
             self.gguf_writer.add_expert_count(n_experts)
-        n_experts_used = self.find_hparam(["num_experts_per_token"])
-        if n_experts_used is not None:
+        if (n_experts_used := self.find_hparam(["num_experts_per_token"], optional=False)) is not None:
             self.gguf_writer.add_expert_used_count(n_experts_used)
 
         # moe_intermediate_size (1024 for Kimi)
-        moe_intermediate_size = self.find_hparam(["moe_intermediate_size"])
-        if moe_intermediate_size is not None:
+        if (moe_intermediate_size := self.find_hparam(["moe_intermediate_size"], optional=False)) is not None:
             self.gguf_writer.add_expert_feed_forward_length(moe_intermediate_size)
 
         # num_shared_experts (1 for Kimi)
-        num_shared_experts = self.find_hparam(["num_shared_experts"])
-        if num_shared_experts is not None:
+        if (num_shared_experts := self.find_hparam(["num_shared_experts"], optional=False)) is not None:
             self.gguf_writer.add_expert_shared_count(num_shared_experts)
 
         # first_k_dense_replace (1 for Kimi - first layer uses dense MLP)
-        first_k_dense_replace = self.find_hparam(["first_k_dense_replace"])
-        if first_k_dense_replace is not None:
+        if (first_k_dense_replace := self.find_hparam(["first_k_dense_replace"])) is not None:
             self.gguf_writer.add_leading_dense_block_count(first_k_dense_replace)
 
         # Routed scaling factor (expert_weights_scale = 2.446 for Kimi)
-        routed_scaling_factor = self.find_hparam(["routed_scaling_factor"])
-        if routed_scaling_factor is not None:
+        if (routed_scaling_factor := self.find_hparam(["routed_scaling_factor"], optional=False)) is not None:
             self.gguf_writer.add_expert_weights_scale(routed_scaling_factor)
 
     def prepare_tensors(self):
@@ -5292,8 +5280,7 @@ class KimiLinearModel(TextModel):
 
         # Kimi specific bias
         if name.endswith("e_score_correction_bias"):
-            new_name = self.format_tensor_name(gguf.MODEL_TENSOR.FFN_EXP_PROBS_B, bid)
-            return [(new_name, data_torch)]
+            name = name.replace("e_score_correction_bias", "e_score_correction.bias")
 
         # Handle A_log: iHF stores as [1, 1, num_heads, 1]
         # llama.cpp expects ggml ne = [1, num_heads, 1, 1]

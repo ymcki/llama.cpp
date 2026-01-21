@@ -415,11 +415,8 @@ struct llama_layer {
     // Kimi Linear KDA (using ssm_ prefix for consistency)
     // Note: ssm_dt_b already exists above (mamba bias), reused for Kimi dt_bias
     struct ggml_tensor * ssm_q_conv = nullptr;
-    struct ggml_tensor * ssm_q_conv_b = nullptr;
     struct ggml_tensor * ssm_k_conv = nullptr;
-    struct ggml_tensor * ssm_k_conv_b = nullptr;
     struct ggml_tensor * ssm_v_conv = nullptr;
-    struct ggml_tensor * ssm_v_conv_b = nullptr;
     struct ggml_tensor * ssm_f_a    = nullptr;
     struct ggml_tensor * ssm_f_b    = nullptr;
     struct ggml_tensor * ssm_beta   = nullptr;

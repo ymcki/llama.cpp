@@ -6825,11 +6825,6 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                                  layer.ssm_v_conv = create_tensor(tn(LLM_TENSOR_SSM_CONV1D_V, "weight", i), {ssm_d_conv, 1, n_embd_head_v_kda * n_head}, 0);
                              }
 
-                             // Conv bias may not exist in all models - make optional
-                             layer.ssm_q_conv_b = create_tensor(tn(LLM_TENSOR_SSM_CONV1D_Q, "bias", i), {n_embd_head_k_kda * n_head}, TENSOR_NOT_REQUIRED);
-                             layer.ssm_k_conv_b = create_tensor(tn(LLM_TENSOR_SSM_CONV1D_K, "bias", i), {n_embd_head_k_kda * n_head}, TENSOR_NOT_REQUIRED);
-                             layer.ssm_v_conv_b = create_tensor(tn(LLM_TENSOR_SSM_CONV1D_V, "bias", i), {n_embd_head_v_kda * n_head}, TENSOR_NOT_REQUIRED);
-
                              // q, k, v projections
                              // Python: q_proj, k_proj, v_proj
                              layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q, "weight", i), {n_embd, n_embd_head_k_kda * n_head}, 0);
@@ -6923,7 +6918,10 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                             layer.ffn_up_shexp   = create_tensor(tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, n_ff_shexp_actual}, TENSOR_NOT_REQUIRED);
 
                             // exp_probs_b (e_score_correction_bias in vLLM)
-                            layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "weight", i), {n_expert}, 0);
+                            layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, TENSOR_NOT_REQUIRED);
+                            if (!layer.ffn_exp_probs_b) {
+                                layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "weight", i), {n_expert}, TENSOR_NOT_REQUIRED);
+                            }
                         }
                     }
                 } break;
