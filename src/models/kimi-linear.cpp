@@ -197,7 +197,7 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
             // Note: Kimi model uses sigmoid gating, not SiLU (despite FusedRMSNormGated default being swish)
             // Formula: output = RMSNorm(x) * sigmoid(g)
             ggml_tensor * attn_out_final = ggml_reshape_3d(ctx0, output, head_dim, n_head,  n_seq_tokens * n_seqs);
-            ggml_tensor * normed = build_norm(attn_out_final, layer.ssm_o_norm, layer.ssm_o_norm_b, LLM_NORM_RMS, il);
+            ggml_tensor * normed = build_norm(attn_out_final, layer.ssm_o_norm, nullptr, LLM_NORM_RMS, il);
             cb(normed, "kda_normed", il);
             ggml_tensor * gate = ggml_sigmoid(ctx0, g2);
             ggml_tensor * gated = ggml_mul(ctx0, normed, gate);
