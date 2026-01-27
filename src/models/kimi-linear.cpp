@@ -72,7 +72,7 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
     // Note: Kimi MLA does NOT use RoPE (rotary_emb=None in vLLM)
     // So we don't need inp_pos
 
-    auto * inp = build_inp_mem_hybrid();
+    auto * inp = build_inp_mem_hybrid_k();
     auto * inp_rs = inp->get_recr();
     auto * inp_attn = inp->get_attn();
 
@@ -104,8 +104,8 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
     GGML_ASSERT(ubatch.n_tokens == n_seq_tokens * n_seqs);
 
     // MLA params
-    const int64_t n_embd_head_k_mla = hparams.n_embd_head_k_mla;
-    const int64_t n_embd_head_v_mla = hparams.n_embd_head_v_mla;
+    const int64_t n_embd_head_k_mla = hparams.n_embd_head_k_mla();
+    const int64_t n_embd_head_v_mla = hparams.n_embd_head_v_mla();
     const int64_t kv_lora_rank = hparams.n_lora_kv;
     // qk_rope_head_dim = 64 (from Kimi config) which is hparams.n_rot
     // Confirmed from tensor shape: wkv_a_mqa [2304, 576] = [n_embd, kv_lora_rank + qk_rope_head_dim]
@@ -258,14 +258,14 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
 
                 // {n_embd_head_qk_rope + kv_lora_rank, n_head, n_tokens}
                 // note: rope must go first for in-place context shifting in build_rope_shift()
-                Qcur = ggml_concat(ctx0, q_pe, q_nope_absorbed, 0);
+                Qcur = ggml_concat(ctx0, q_nope_absorbed, q_pe, 0);
                 cb(Qcur, "Qcur", il);
 
                 kv_cmpr = ggml_reshape_3d(ctx0, kv_cmpr, kv_lora_rank, 1, n_tokens);
                 cb(kv_cmpr, "kv_cmpr_reshape", il);
 
                 // {n_embd_head_qk_rope + kv_lora_rank, 1, n_tokens}
-                ggml_tensor * Kcur = ggml_concat(ctx0, k_pe, kv_cmpr, 0);
+                ggml_tensor * Kcur = ggml_concat(ctx0, kv_cmpr, k_pe, 0);
                 cb(Kcur, "Kcur", il);
 
                 // {kv_lora_rank, 1, n_tokens}
@@ -299,7 +299,7 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
                 // Need to broadcast k_pe from [qk_rope, 1, n_tokens] to [qk_rope, n_head, n_tokens]
                 ggml_tensor * k_pe_target = ggml_new_tensor_3d(ctx0, k_pe->type, n_embd_head_qk_rope, n_head, n_tokens);
                 ggml_tensor * k_pe_repeated = ggml_repeat(ctx0, k_pe, k_pe_target);
-                ggml_tensor * Kcur = ggml_concat(ctx0, k_nope, k_pe_repeated, 0);
+                ggml_tensor * Kcur = ggml_concat(ctx0, k_pe_repeated, k_nope, 0);
                 cb(Kcur, "mla_K", il);
 
                 // Direct softmax attention (with MHA KV cache)

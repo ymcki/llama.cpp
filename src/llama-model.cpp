@@ -2454,12 +2454,12 @@ void llama_model::load_hparams(llama_model_loader & ml) {
         case LLM_ARCH_KIMI_LINEAR:
             {
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
-                ml.get_key(LLM_KV_ATTENTION_KEY_LENGTH_MLA,    hparams.n_embd_head_k_mla, false);
-                ml.get_key(LLM_KV_ATTENTION_VALUE_LENGTH_MLA,  hparams.n_embd_head_v_mla, false);
-                ml.get_key(LLM_KV_ATTENTION_KV_LORA_RANK,      hparams.n_lora_kv, false);
-                ml.get_key(LLM_KV_ROPE_DIMENSION_COUNT,        hparams.n_rot, false);
-                ml.get_key(LLM_KV_SSM_CONV_KERNEL,             hparams.ssm_d_conv, false);
-                ml.get_key(LLM_KV_KDA_HEAD_DIM,                hparams.kda_head_dim, false);
+                ml.get_key(LLM_KV_ATTENTION_KEY_LENGTH_MLA,    hparams.n_embd_head_k_mla_impl);
+                ml.get_key(LLM_KV_ATTENTION_VALUE_LENGTH_MLA,  hparams.n_embd_head_v_mla_impl);
+                ml.get_key(LLM_KV_ATTENTION_KV_LORA_RANK,      hparams.n_lora_kv);
+                ml.get_key(LLM_KV_ROPE_DIMENSION_COUNT,        hparams.n_rot);
+                ml.get_key(LLM_KV_SSM_CONV_KERNEL,             hparams.ssm_d_conv);
+                ml.get_key(LLM_KV_KDA_HEAD_DIM,                hparams.kda_head_dim);
 
                 // MLA qk_rope_head_dim (for reference)
                 // qk_rope_head_dim = 64, qk_nope_head_dim = 128, qk_head_dim = 192
@@ -2471,11 +2471,10 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 }
 
                 // MoE parameters - Kimi uses moe_intermediate_size = 1024
-                ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp, false);
-                ml.get_key(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_shexp, false);
-                ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,               hparams.n_expert_shared, false);
-                ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT,         hparams.n_layer_dense_lead, false);
-                ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,              hparams.expert_weights_scale, false);
+                ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp);
+                ml.get_key(LLM_KV_EXPERT_SHARED_COUNT,               hparams.n_expert_shared);
+                ml.get_key(LLM_KV_LEADING_DENSE_BLOCK_COUNT,         hparams.n_layer_dense_lead);
+                ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,              hparams.expert_weights_scale);
                 ml.get_key(LLM_KV_EXPERT_GATING_FUNC,                hparams.expert_gating_func);
 
                 switch (hparams.n_layer) {
@@ -6863,8 +6862,8 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                              // MLA Layer - use MLA-specific head dimensions
                              const int64_t q_lora_rank  = hparams.n_lora_q;
                              const int64_t kv_lora_rank = hparams.n_lora_kv;
-                             const int64_t n_embd_head_k_mla = hparams.n_embd_head_k_mla;
-                             const int64_t n_embd_head_v_mla = hparams.n_embd_head_v_mla;
+                             const int64_t n_embd_head_k_mla = hparams.n_embd_head_k_mla();
+                             const int64_t n_embd_head_v_mla = hparams.n_embd_head_v_mla();
 
                              layer.attn_q_a_norm = create_tensor(tn(LLM_TENSOR_ATTN_Q_A_NORM, "weight", i), {q_lora_rank}, TENSOR_NOT_REQUIRED);
                              layer.attn_kv_a_norm = create_tensor(tn(LLM_TENSOR_ATTN_KV_A_NORM, "weight", i), {kv_lora_rank}, 0);
@@ -6917,10 +6916,7 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                             layer.ffn_down_shexp = create_tensor(tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {n_ff_shexp_actual, n_embd}, TENSOR_NOT_REQUIRED);
                             layer.ffn_up_shexp   = create_tensor(tn(LLM_TENSOR_FFN_UP_SHEXP,   "weight", i), {n_embd, n_ff_shexp_actual}, TENSOR_NOT_REQUIRED);
 
-                            layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, TENSOR_NOT_REQUIRED);
-                            if (!layer.ffn_exp_probs_b) {
-                                layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "weight", i), {n_expert}, TENSOR_NOT_REQUIRED);
-                            }
+                            layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert}, 0);
                         }
                     }
                 } break;
