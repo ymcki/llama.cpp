@@ -423,7 +423,6 @@ struct llama_layer {
     struct ggml_tensor * ssm_g_a    = nullptr;
     struct ggml_tensor * ssm_g_b    = nullptr;
     struct ggml_tensor * ssm_o_norm = nullptr;
-    struct ggml_tensor * ssm_o_norm_b = nullptr;
 
     struct llama_layer_posnet posnet;
 

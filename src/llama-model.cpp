@@ -6853,7 +6853,6 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
 
                              // o_norm (reusing SSM_NORM)
                              layer.ssm_o_norm = create_tensor(tn(LLM_TENSOR_SSM_NORM, "weight", i), {n_embd_head_k_kda}, 0); // FusedRMSNormGated
-                             layer.ssm_o_norm_b = create_tensor(tn(LLM_TENSOR_SSM_NORM, "bias", i), {n_embd_head_k_kda}, TENSOR_NOT_REQUIRED);
 
                              // o_proj
                              layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_v_kda * n_head, n_embd}, 0);
