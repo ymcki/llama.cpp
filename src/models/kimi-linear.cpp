@@ -92,7 +92,7 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
 
     // Kimi dimension constants
     const int64_t n_head = hparams.n_head();
-    const int64_t head_dim = hparams.kda_head_dim;
+    const int64_t head_dim = hparams.n_embd_head_kda;
     const int64_t d_conv = hparams.ssm_d_conv;
     const int64_t d_inner = n_head * head_dim;  // 32 * 128 = 4096
     const int64_t n_seqs = ubatch.n_seqs;

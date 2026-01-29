@@ -533,6 +533,9 @@ bool llm_graph_input_mem_hybrid::can_reuse(const llm_graph_params & params) {
     return res;
 }
 
+// TODO: Hybrid input classes are a bit redundant. 
+// Instead of creating a hybrid input, the graph can simply create 2 separate inputs.
+// Refactoring is required in the future.
 void llm_graph_input_mem_hybrid_k::set_input(const llama_ubatch * ubatch) {
     mctx->get_attn()->set_input_k_idxs(inp_attn->self_k_idxs, ubatch);
 

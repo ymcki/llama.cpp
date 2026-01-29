@@ -2459,7 +2459,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 ml.get_key(LLM_KV_ATTENTION_KV_LORA_RANK,      hparams.n_lora_kv);
                 ml.get_key(LLM_KV_ROPE_DIMENSION_COUNT,        hparams.n_rot);
                 ml.get_key(LLM_KV_SSM_CONV_KERNEL,             hparams.ssm_d_conv);
-                ml.get_key(LLM_KV_KDA_HEAD_DIM,                hparams.kda_head_dim);
+                ml.get_key(LLM_KV_KDA_HEAD_DIM,                hparams.n_embd_head_kda);
 
                 // MLA qk_rope_head_dim (for reference)
                 // qk_rope_head_dim = 64, qk_nope_head_dim = 128, qk_head_dim = 192
@@ -6801,8 +6801,8 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                         // Assuming KDA layer if KDA tensors are present
 
                         // KDA uses head_dim = 128 (from linear_attn_config.head_dim)
-                        const int64_t n_embd_head_k_kda = hparams.kda_head_dim;
-                        const int64_t n_embd_head_v_kda = hparams.kda_head_dim;
+                        const int64_t n_embd_head_k_kda = hparams.n_embd_head_kda;
+                        const int64_t n_embd_head_v_kda = hparams.n_embd_head_kda;
                         const int64_t ssm_d_conv = hparams.ssm_d_conv;
 
                         // Try loading KDA specific tensors (using SSM_ prefix)
