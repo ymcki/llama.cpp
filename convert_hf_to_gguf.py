@@ -5096,7 +5096,7 @@ class KimiLinearModel(TextModel):
 
         # KDA & MLA params
         # Get ssm_d_conv from linear_attn_config.short_conv_kernel_size or ssm_d_conv
-        linear_attn_config = self.hparams.get("linear_attn_config", {})
+        linear_attn_config = self.find_hparam(["linear_attn_config"], optional=False)
         # n_head == 0 for KDA layers, n_head > 0 for MLA layers
         # full_attention_layers list will be used to distingush layer type
         _num_kv_heads = list()
@@ -5123,23 +5123,24 @@ class KimiLinearModel(TextModel):
 
         # MLA head dimensions
         # Support HuggingFace naming: qk_nope_head_dim, qk_rope_head_dim, v_head_dim
-        qk_nope_head_dim = self.hparams.get("qk_nope_head_dim")
-        qk_rope_head_dim = self.hparams.get("qk_rope_head_dim")
-        v_head_dim = self.hparams.get("v_head_dim")
+        qk_nope_head_dim = self.find_hparam(["qk_nope_head_dim"], optional=False)
+        qk_rope_head_dim = self.find_hparam(["qk_rope_head_dim"], optional=False)
+        v_head_dim = self.find_hparam(["v_head_dim"], optional=False)
+        kv_lora_rank = self.find_hparam(["kv_lora_rank"], optional=False)
         # To enable MLA KV cache, MLA needs to be converted into MQA with larger heads, then decompresses to MHA
-        self.gguf_writer.add_key_length(self.hparams["kv_lora_rank"] + self.hparams["qk_rope_head_dim"])
-        self.gguf_writer.add_value_length(self.hparams["kv_lora_rank"])
+        self.gguf_writer.add_key_length(kv_lora_rank + qk_rope_head_dim)
+        self.gguf_writer.add_value_length(kv_lora_rank)
 
         # Calculate n_embd_head_k_mla = qk_nope_head_dim + qk_rope_head_dim
-        if "n_embd_head_k_mla" in self.hparams:
-            self.gguf_writer.add_key_length_mla(self.hparams["n_embd_head_k_mla"])
+        if (n_embd_head_k_mla := self.find_hparam(["n_embd_head_k_mla"], optional=True)) is not None:
+            self.gguf_writer.add_key_length_mla(n_embd_head_k_mla)
         elif qk_nope_head_dim is not None and qk_rope_head_dim is not None:
             n_embd_head_k_mla = qk_nope_head_dim + qk_rope_head_dim
             self.gguf_writer.add_key_length_mla(n_embd_head_k_mla)
 
         # n_embd_head_v_mla = v_head_dim
-        if "n_embd_head_v_mla" in self.hparams:
-            self.gguf_writer.add_value_length_mla(self.hparams["n_embd_head_v_mla"])
+        if (n_embd_head_v_mla := self.find_hparam(["n_embd_head_v_mla"], optional=True)) is not None:
+            self.gguf_writer.add_value_length_mla(n_embd_head_v_mla)
         elif v_head_dim is not None:
             self.gguf_writer.add_value_length_mla(v_head_dim)
 
@@ -5216,7 +5217,7 @@ class KimiLinearModel(TextModel):
 
         # process the experts separately
         if name.find("block_sparse_moe.experts") != -1:
-            n_experts = self.hparams.get("num_local_experts", self.hparams.get("num_experts"))
+            n_experts = self.find_hparam(["num_experts"], optional=False)
             assert bid is not None
 
             if self._experts is None:
