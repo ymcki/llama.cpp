@@ -907,10 +907,10 @@ class TextModel(ModelBase):
         if (f_norm_eps := self.find_hparam(["layer_norm_eps", "layer_norm_epsilon", "norm_epsilon"], optional=True)) is not None:
             self.gguf_writer.add_layer_norm_eps(f_norm_eps)
             logger.info(f"gguf: layer norm epsilon = {f_norm_eps}")
-        if (n_experts := self.hparams.get("num_local_experts")) is not None:
+        if (n_experts := self.find_hparam(["num_local_experts", "num_experts"], optional=True)) is not None:
             self.gguf_writer.add_expert_count(n_experts)
             logger.info(f"gguf: expert count = {n_experts}")
-        if (n_experts_used := self.hparams.get("num_experts_per_tok")) is not None:
+        if (n_experts_used := self.find_hparam(["num_experts_per_tok", "num_experts_per_token"], optional=True)) is not None:
             self.gguf_writer.add_expert_used_count(n_experts_used)
             logger.info(f"gguf: experts used count = {n_experts_used}")
         if (n_expert_groups := self.hparams.get("n_group")) is not None:
@@ -920,7 +920,7 @@ class TextModel(ModelBase):
             self.gguf_writer.add_expert_group_used_count(n_group_used)
             logger.info(f"gguf: expert groups used count = {n_group_used}")
 
-        if (score_func := self.find_hparam(["score_function", "scoring_func", "score_func"], optional=True)) is not None:
+        if (score_func := self.find_hparam(["score_function", "scoring_func", "score_func", "moe_router_activation_func"], optional=True)) is not None:
             if score_func == "sigmoid":
                 self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
             elif score_func == "softmax":
@@ -5086,14 +5086,6 @@ class KimiLinearModel(TextModel):
         super().set_gguf_parameters()
         self.gguf_writer.add_vocab_size(self.hparams["vocab_size"])
 
-        if (score_func := self.find_hparam(["moe_router_activation_func"], optional=True)) is not None:
-            if score_func == "sigmoid":
-                self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
-            elif score_func == "softmax":
-                self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SOFTMAX)
-            else:
-                raise ValueError(f"Unsupported expert score gating function value: {score_func}")
-
         # KDA & MLA params
         # Get ssm_d_conv from linear_attn_config.short_conv_kernel_size or ssm_d_conv
         linear_attn_config = self.find_hparam(["linear_attn_config"], optional=False)
@@ -5151,11 +5143,6 @@ class KimiLinearModel(TextModel):
             # Default to head_dim
             head_dim = self.hparams["hidden_size"] // self.hparams["num_attention_heads"]
             self.gguf_writer.add_rope_dimension_count(head_dim)
-
-        if (n_experts := self.find_hparam(["num_experts"], optional=False)) is not None:
-            self.gguf_writer.add_expert_count(n_experts)
-        if (n_experts_used := self.find_hparam(["num_experts_per_token"], optional=False)) is not None:
-            self.gguf_writer.add_expert_used_count(n_experts_used)
 
         # moe_intermediate_size (1024 for Kimi)
         if (moe_intermediate_size := self.find_hparam(["moe_intermediate_size"], optional=False)) is not None:
@@ -5227,7 +5214,6 @@ class KimiLinearModel(TextModel):
 
             if len(self._experts[bid]) >= n_experts * 3:
                 # merge the experts into a single 3d tensor
-                tensors = []
                 # w1: gate, w2: down, w3: up
                 for wid, tname in [("w1", gguf.MODEL_TENSOR.FFN_GATE_EXP),
                                    ("w2", gguf.MODEL_TENSOR.FFN_DOWN_EXP),
@@ -5237,12 +5223,10 @@ class KimiLinearModel(TextModel):
                         ename = f"model.layers.{bid}.block_sparse_moe.experts.{xid}.{wid}.weight"
                         datas.append(self._experts[bid][ename])
                         del self._experts[bid][ename]
-
                     data_torch = torch.stack(datas, dim=0)
                     new_name = self.format_tensor_name(tname, bid)
-                    tensors.append((new_name, data_torch))
-                return tensors
-            return []
+                    yield from super().modify_tensors(data_torch, new_name, bid)
+            return
 
         # note: MLA with the absorption optimization, needs these two split and k_b_proj transposed
         if name.endswith("kv_b_proj.weight"):
@@ -5256,11 +5240,11 @@ class KimiLinearModel(TextModel):
             kv_b = data_torch.view(n_head_kv, v_head_dim + qk_nope_head_dim, data_torch.shape[-1])
             k_b, v_b = torch.split(kv_b, [qk_nope_head_dim, v_head_dim], dim=1)
             k_b = k_b.transpose(1, 2)
-            return [(self.map_tensor_name(name_kb), k_b), (self.map_tensor_name(name_vb), v_b)]
+            yield from super().modify_tensors(k_b, name_kb, bid)
+            yield from super().modify_tensors(v_b, name_vb, bid)
+            return
 
-        mapped_name = self.map_tensor_name(name)
-        logger.info(f"Returning {mapped_name}: shape after = {tuple(data_torch.shape)}")
-        return [(mapped_name, data_torch)]
+        yield from super().modify_tensors(data_torch, name, bid)
 
 
 @ModelBase.register("InternLM2ForCausalLM")

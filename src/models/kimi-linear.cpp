@@ -34,7 +34,7 @@ static ggml_tensor * causal_conv1d(ggml_cgraph * gf, ggml_context * ctx0, ggml_t
     ggml_tensor * x_3d = ggml_reshape_3d(ctx0, x_proj, d_inner, n_seq_tokens, n_seqs);
 
     // Concat Q conv state and current input: {d_conv-1 + n_seq_tokens, d_inner, n_seqs}
-    ggml_tensor * conv_x = ggml_cont(ctx0, ggml_concat(ctx0, conv_state_x, ggml_transpose(ctx0, x_3d), 0));
+    ggml_tensor * conv_x = ggml_concat(ctx0, conv_state_x, ggml_transpose(ctx0, x_3d), 0);
 
     // Save last (d_conv-1) columns back to Q conv state
     ggml_tensor * last_conv_x = ggml_view_3d(ctx0, conv_x, d_conv - 1, d_inner, n_seqs,
@@ -289,8 +289,6 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
                     ggml_row_size(kv->type, kv_per_head),
                     ggml_row_size(kv->type, kv_per_head * n_head),
                     ggml_row_size(kv->type, n_embd_head_qk_nope));
-                k_nope = ggml_cont(ctx0, k_nope);
-                Vcur = ggml_cont(ctx0, Vcur);
                 cb(Vcur, "mla_V", il);
 
                 // Concatenate k_nope + k_pe (broadcast k_pe to all heads)
@@ -403,11 +401,6 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_kimi_linear::build_kda_chunkin
         ggml_tensor * identity,
         ggml_tensor * diag_mask,
         int           il) {
-    GGML_ASSERT(ggml_is_contiguous(q));
-    GGML_ASSERT(ggml_is_contiguous(k));
-    GGML_ASSERT(ggml_is_contiguous(v));
-    GGML_ASSERT(ggml_is_contiguous(gk));
-    GGML_ASSERT(ggml_is_contiguous(beta));
     GGML_ASSERT(ggml_is_contiguous(state));
 
     const int64_t S_k      = q->ne[0];
@@ -694,12 +687,8 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_kimi_linear::build_kda_autoreg
     ggml_tensor * beta,
     ggml_tensor * state,
     int il) {
-    GGML_ASSERT(ggml_is_contiguous(q));
-    GGML_ASSERT(ggml_is_contiguous(k));
     GGML_ASSERT(ggml_is_contiguous(v));
     GGML_ASSERT(ggml_is_contiguous(gk));
-    GGML_ASSERT(ggml_is_contiguous(beta));
-    GGML_ASSERT(ggml_is_contiguous(state));
 
     const int64_t S_k      = q->ne[0];
     const int64_t H_k      = q->ne[1];
