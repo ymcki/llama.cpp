@@ -359,6 +359,7 @@ class TensorNameMap:
 
         MODEL_TENSOR.ATTN_GATE: (
             "model.layers.{bid}.self_attn.gate_proj", # afmoe
+            "model.layers.{bid}.self_attn.g_proj",    # step3.5 head-wise attention gate
         ),
 
         # Feed-forward norm
@@ -423,6 +424,7 @@ class TensorNameMap:
             "model.layers.{bid}.mlp.router.gate",               # afmoe
             "layers.{bid}.gate",                                # mistral-large
             "backbone.layers.{bid}.mixer.gate",                 # nemotron-h-moe
+            "model.layers.{bid}.moe.gate",                      # step3.5
         ),
 
         MODEL_TENSOR.FFN_GATE_INP_SHEXP: (
@@ -437,7 +439,7 @@ class TensorNameMap:
             "model.layers.{bid}.feed_forward.expert_bias",                  # lfm2moe
             "model.layers.{bid}.block_sparse_moe.e_score_correction",       # minimax-m2
             "backbone.layers.{bid}.mixer.gate.e_score_correction",          # nemotron-h-moe
-            "model.layers.{bid}.mlp.e_score_correction",                    # exaone-moe
+            "model.layers.{bid}.moe.router_bias",                           # step3.5 expert selection bias
         ),
 
         # Feed-forward up
@@ -492,6 +494,7 @@ class TensorNameMap:
             "model.layers.{bid}.feed_forward.experts.up_proj",      # llama4
             "encoder.layers.{bid}.mlp.experts.mlp.w1",              # nomic-bert-moe
             "model.layers.{bid}.block_sparse_moe.experts.up", # smallthinker
+            "model.layers.{bid}.moe.up_proj",                       # step3.5
         ),
 
         MODEL_TENSOR.FFN_UP_SHEXP: (
@@ -502,6 +505,7 @@ class TensorNameMap:
             "model.layers.{bid}.mlp.shared_mlp.up_proj",             # hunyuan
             "layers.{bid}.shared_experts.w3",                        # mistral-large
             "backbone.layers.{bid}.mixer.shared_experts.up_proj",    # nemotron-h-moe
+            "model.layers.{bid}.share_expert.up_proj",               # step3.5
         ),
 
         MODEL_TENSOR.FFN_UP_CHEXP: (
@@ -541,6 +545,7 @@ class TensorNameMap:
             "model.layers.{bid}.block_sparse_moe.experts.w1",           # phimoe (merged)
             "model.layers.{bid}.feed_forward.experts.gate_proj",        # llama4
             "model.layers.{bid}.block_sparse_moe.experts.gate",         # smallthinker
+            "model.layers.{bid}.moe.gate_proj",                         # step3.5
         ),
 
         MODEL_TENSOR.FFN_GATE_SHEXP: (
@@ -549,6 +554,7 @@ class TensorNameMap:
             "model.layers.{bid}.feed_forward.shared_expert.gate_proj", # llama4
             "model.layers.{bid}.mlp.shared_mlp.gate_proj",             # hunyuan
             "layers.{bid}.shared_experts.w1",                          # mistral-large
+            "model.layers.{bid}.share_expert.gate_proj",               # step3.5
         ),
 
         MODEL_TENSOR.FFN_GATE_CHEXP: (
@@ -603,6 +609,7 @@ class TensorNameMap:
             "model.layers.{bid}.feed_forward.experts.down_proj",    # llama4
             "encoder.layers.{bid}.mlp.experts.mlp.w2",              # nomic-bert-moe
             "model.layers.{bid}.block_sparse_moe.experts.down",     # smallthinker
+            "model.layers.{bid}.moe.down_proj",                     # step3.5
         ),
 
         MODEL_TENSOR.FFN_DOWN_SHEXP: (
@@ -613,6 +620,7 @@ class TensorNameMap:
             "model.layers.{bid}.mlp.shared_mlp.down_proj",             # hunyuan
             "layers.{bid}.shared_experts.w2",                          # mistral-large
             "backbone.layers.{bid}.mixer.shared_experts.down_proj",    # nemotron-h-moe
+            "model.layers.{bid}.share_expert.down_proj",               # step3.5
         ),
 
         MODEL_TENSOR.FFN_DOWN_CHEXP: (
