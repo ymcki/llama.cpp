@@ -5111,21 +5111,16 @@ class KimiLinearModel(TextModel):
         if (q_lora_rank := self.find_hparam(["q_lora_rank", "n_lora_q"], optional=True)) is not None:
             self.gguf_writer.add_q_lora_rank(q_lora_rank)
         # To enable MLA KV cache, MLA needs to be converted into MQA with larger heads, then decompresses to MHA
-        if (kv_lora_rank := self.find_hparam(["kv_lora_rank", "n_lora_kv"], optional=False)) is not None:
-            self.gguf_writer.add_kv_lora_rank(kv_lora_rank)
+        kv_lora_rank = self.find_hparam(["kv_lora_rank", "n_lora_kv"], optional=False)
+        self.gguf_writer.add_kv_lora_rank(kv_lora_rank)
 
         # MLA head dimensions
         # Support HuggingFace naming: qk_nope_head_dim, qk_rope_head_dim, v_head_dim
         qk_nope_head_dim = self.hparams.get("qk_nope_head_dim")
         # Rotation - use qk_rope_head_dim for Kimi
-        if (qk_rope_head_dim := self.find_hparam(["qk_rope_head_dim", "n_rot"], optional=False)) is not None:
-            self.gguf_writer.add_rope_dimension_count(qk_rope_head_dim)
-            self.gguf_writer.add_key_length(kv_lora_rank + qk_rope_head_dim)
-        else:
-            # Default to head_dim
-            head_dim = self.hparams["hidden_size"] // self.hparams["num_attention_heads"]
-            self.gguf_writer.add_rope_dimension_count(head_dim)
-            self.gguf_writer.add_key_length(kv_lora_rank + head_dim)
+        qk_rope_head_dim = self.find_hparam(["qk_rope_head_dim", "n_rot"], optional=False)
+        self.gguf_writer.add_rope_dimension_count(qk_rope_head_dim)
+        self.gguf_writer.add_key_length(kv_lora_rank + qk_rope_head_dim)
         v_head_dim = self.hparams.get("v_head_dim")
 
         # Calculate n_embd_head_k_mla = qk_nope_head_dim + qk_rope_head_dim
