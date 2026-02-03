@@ -5088,7 +5088,7 @@ class KimiLinearModel(TextModel):
 
         # KDA & MLA params
         # Get ssm_d_conv from linear_attn_config.short_conv_kernel_size or ssm_d_conv
-        linear_attn_config = self.find_hparam(["linear_attn_config"], optional=False)
+        linear_attn_config = self.hparams["linear_attn_config"]
         # n_head == 0 for KDA layers, n_head > 0 for MLA layers
         # full_attention_layers list will be used to distingush layer type
         _num_kv_heads = list()
@@ -5108,57 +5108,47 @@ class KimiLinearModel(TextModel):
 
         # MLA params - use add_* methods that handle arch substitution
         # Support both HuggingFace naming (q_lora_rank, kv_lora_rank) and internal naming (n_lora_q, n_lora_kv)
-        if (q_lora_rank := self.find_hparam(["q_lora_rank", "n_lora_q"], optional=False)) is not None:
+        if (q_lora_rank := self.find_hparam(["q_lora_rank", "n_lora_q"], optional=True)) is not None:
             self.gguf_writer.add_q_lora_rank(q_lora_rank)
+        # To enable MLA KV cache, MLA needs to be converted into MQA with larger heads, then decompresses to MHA
         if (kv_lora_rank := self.find_hparam(["kv_lora_rank", "n_lora_kv"], optional=False)) is not None:
             self.gguf_writer.add_kv_lora_rank(kv_lora_rank)
 
         # MLA head dimensions
         # Support HuggingFace naming: qk_nope_head_dim, qk_rope_head_dim, v_head_dim
-        qk_nope_head_dim = self.find_hparam(["qk_nope_head_dim"], optional=False)
-        qk_rope_head_dim = self.find_hparam(["qk_rope_head_dim"], optional=False)
-        v_head_dim = self.find_hparam(["v_head_dim"], optional=False)
-        kv_lora_rank = self.find_hparam(["kv_lora_rank"], optional=False)
-        # To enable MLA KV cache, MLA needs to be converted into MQA with larger heads, then decompresses to MHA
-        self.gguf_writer.add_key_length(kv_lora_rank + qk_rope_head_dim)
-        self.gguf_writer.add_value_length(kv_lora_rank)
-
-        # Calculate n_embd_head_k_mla = qk_nope_head_dim + qk_rope_head_dim
-        if (n_embd_head_k_mla := self.find_hparam(["n_embd_head_k_mla"], optional=True)) is not None:
-            self.gguf_writer.add_key_length_mla(n_embd_head_k_mla)
-        elif qk_nope_head_dim is not None and qk_rope_head_dim is not None:
-            n_embd_head_k_mla = qk_nope_head_dim + qk_rope_head_dim
-            self.gguf_writer.add_key_length_mla(n_embd_head_k_mla)
-
-        # n_embd_head_v_mla = v_head_dim
-        if (n_embd_head_v_mla := self.find_hparam(["n_embd_head_v_mla"], optional=True)) is not None:
-            self.gguf_writer.add_value_length_mla(n_embd_head_v_mla)
-        elif v_head_dim is not None:
-            self.gguf_writer.add_value_length_mla(v_head_dim)
-
+        qk_nope_head_dim = self.hparams.get("qk_nope_head_dim")
         # Rotation - use qk_rope_head_dim for Kimi
-        if (rope_dim := self.find_hparam(["qk_rope_head_dim", "n_rot"], optional=True)) is not None:
-            self.gguf_writer.add_rope_dimension_count(rope_dim)
+        if (qk_rope_head_dim := self.find_hparam(["qk_rope_head_dim", "n_rot"], optional=False)) is not None:
+            self.gguf_writer.add_rope_dimension_count(qk_rope_head_dim)
+            self.gguf_writer.add_key_length(kv_lora_rank + qk_rope_head_dim)
         else:
             # Default to head_dim
             head_dim = self.hparams["hidden_size"] // self.hparams["num_attention_heads"]
             self.gguf_writer.add_rope_dimension_count(head_dim)
+            self.gguf_writer.add_key_length(kv_lora_rank + head_dim)
+        v_head_dim = self.hparams.get("v_head_dim")
+
+        # Calculate n_embd_head_k_mla = qk_nope_head_dim + qk_rope_head_dim
+        if (n_embd_head_k_mla := self.find_hparam(["n_embd_head_k_mla"], optional=True)) is not None:
+            self.gguf_writer.add_key_length_mla(n_embd_head_k_mla)
+        elif qk_nope_head_dim is not None:
+            n_embd_head_k_mla = qk_nope_head_dim + qk_rope_head_dim
+            self.gguf_writer.add_key_length_mla(n_embd_head_k_mla)
+
+        # n_embd_head_v_mla = v_head_dim
+        if (n_embd_head_v_mla := self.hparams.get("n_embd_head_v_mla")) is not None:
+            self.gguf_writer.add_value_length_mla(n_embd_head_v_mla)
+        elif v_head_dim is not None:
+            self.gguf_writer.add_value_length_mla(v_head_dim)
 
         # moe_intermediate_size (1024 for Kimi)
-        if (moe_intermediate_size := self.find_hparam(["moe_intermediate_size"], optional=False)) is not None:
-            self.gguf_writer.add_expert_feed_forward_length(moe_intermediate_size)
-
+        self.gguf_writer.add_expert_feed_forward_length(self.hparams["moe_intermediate_size"])
         # num_shared_experts (1 for Kimi)
-        if (num_shared_experts := self.find_hparam(["num_shared_experts"], optional=False)) is not None:
-            self.gguf_writer.add_expert_shared_count(num_shared_experts)
-
+        self.gguf_writer.add_expert_shared_count(self.hparams["num_shared_experts"])
         # first_k_dense_replace (1 for Kimi - first layer uses dense MLP)
-        if (first_k_dense_replace := self.find_hparam(["first_k_dense_replace"])) is not None:
-            self.gguf_writer.add_leading_dense_block_count(first_k_dense_replace)
-
+        self.gguf_writer.add_leading_dense_block_count(self.hparams["first_k_dense_replace"])
         # Routed scaling factor (expert_weights_scale = 2.446 for Kimi)
-        if (routed_scaling_factor := self.find_hparam(["routed_scaling_factor"], optional=False)) is not None:
-            self.gguf_writer.add_expert_weights_scale(routed_scaling_factor)
+        self.gguf_writer.add_expert_weights_scale(self.hparams["routed_scaling_factor"])
 
     def prepare_tensors(self):
         super().prepare_tensors()
