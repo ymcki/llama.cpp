@@ -291,6 +291,7 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
                     ggml_row_size(kv->type, kv_per_head),
                     ggml_row_size(kv->type, kv_per_head * n_head),
                     ggml_row_size(kv->type, n_embd_head_qk_nope));
+                Vcur = ggml_cont(ctx0, Vcur);
                 cb(Vcur, "mla_V", il);
 
                 // Concatenate k_nope + k_pe (broadcast k_pe to all heads)
