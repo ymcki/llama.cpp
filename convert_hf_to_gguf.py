@@ -5086,15 +5086,6 @@ class KimiLinearModel(TextModel):
         super().set_gguf_parameters()
         self.gguf_writer.add_vocab_size(self.hparams["vocab_size"])
 
-        # Use find_hparam for context length
-        # Kimi uses model_max_length
-        if (n_ctx := self.find_hparam(["max_position_embeddings", "model_max_length", "n_ctx", "n_positions"], optional=True)) is not None:
-            self.gguf_writer.add_context_length(n_ctx)
-        else:
-            # Default to 4096 if not found
-            logger.warning("No context length found in config, defaulting to 4096")
-            self.gguf_writer.add_context_length(4096)
-
         # KDA & MLA params
         # Get ssm_d_conv from linear_attn_config.short_conv_kernel_size or ssm_d_conv
         linear_attn_config = self.hparams["linear_attn_config"]
