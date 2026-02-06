@@ -138,7 +138,7 @@ struct llama_hparams {
     uint32_t ssm_n_group = 0;
 
     // for Kimi Linear KDA
-    uint32_t kda_head_dim = 0;
+    uint32_t n_embd_head_kda = 0;
 
     // for hybrid state space models
     std::array<bool, LLAMA_MAX_LAYERS> recurrent_layer_arr;
@@ -198,7 +198,7 @@ struct llama_hparams {
     uint32_t n_deepstack_layers = 0;
 
     // needed by encoder-decoder models (e.g. T5, FLAN-T5)
-    // ref: https://github.com/ggerganov/llama.cpp/pull/8141
+    // ref: https://github.com/ggml-org/llama.cpp/pull/8141
     llama_token dec_start_token_id = LLAMA_TOKEN_NULL;
     uint32_t    dec_n_layer        = 0;
 

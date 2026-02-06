@@ -907,10 +907,10 @@ class TextModel(ModelBase):
         if (f_norm_eps := self.find_hparam(["layer_norm_eps", "layer_norm_epsilon", "norm_epsilon"], optional=True)) is not None:
             self.gguf_writer.add_layer_norm_eps(f_norm_eps)
             logger.info(f"gguf: layer norm epsilon = {f_norm_eps}")
-        if (n_experts := self.hparams.get("num_local_experts")) is not None:
+        if (n_experts := self.find_hparam(["num_local_experts", "num_experts"], optional=True)) is not None:
             self.gguf_writer.add_expert_count(n_experts)
             logger.info(f"gguf: expert count = {n_experts}")
-        if (n_experts_used := self.hparams.get("num_experts_per_tok")) is not None:
+        if (n_experts_used := self.find_hparam(["num_experts_per_tok", "num_experts_per_token"], optional=True)) is not None:
             self.gguf_writer.add_expert_used_count(n_experts_used)
             logger.info(f"gguf: experts used count = {n_experts_used}")
         if (n_expert_groups := self.hparams.get("n_group")) is not None:
@@ -920,7 +920,7 @@ class TextModel(ModelBase):
             self.gguf_writer.add_expert_group_used_count(n_group_used)
             logger.info(f"gguf: expert groups used count = {n_group_used}")
 
-        if (score_func := self.find_hparam(["score_function", "scoring_func", "score_func"], optional=True)) is not None:
+        if (score_func := self.find_hparam(["score_function", "scoring_func", "score_func", "moe_router_activation_func"], optional=True)) is not None:
             if score_func == "sigmoid":
                 self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
             elif score_func == "softmax":
@@ -5086,6 +5086,7 @@ class KimiLinearModel(TextModel):
         super().set_gguf_parameters()
         self.gguf_writer.add_vocab_size(self.hparams["vocab_size"])
 
+<<<<<<< HEAD
         if (score_func := self.find_hparam(["moe_router_activation_func"], optional=True)) is not None:
             if score_func == "sigmoid":
                 self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
@@ -5097,6 +5098,11 @@ class KimiLinearModel(TextModel):
         # KDA & MLA params
         # Get ssm_d_conv from linear_attn_config.short_conv_kernel_size or ssm_d_conv
         linear_attn_config = self.hparams.get("linear_attn_config", {})
+=======
+        # KDA & MLA params
+        # Get ssm_d_conv from linear_attn_config.short_conv_kernel_size or ssm_d_conv
+        linear_attn_config = self.hparams["linear_attn_config"]
+>>>>>>> 3688c4f504f8e336663157bcc6e0af78d617420c
         # n_head == 0 for KDA layers, n_head > 0 for MLA layers
         # full_attention_layers list will be used to distingush layer type
         _num_kv_heads = list()
@@ -5116,14 +5122,23 @@ class KimiLinearModel(TextModel):
 
         # MLA params - use add_* methods that handle arch substitution
         # Support both HuggingFace naming (q_lora_rank, kv_lora_rank) and internal naming (n_lora_q, n_lora_kv)
+<<<<<<< HEAD
         if (q_lora_rank := self.find_hparam(["q_lora_rank", "n_lora_q"], optional=False)) is not None:
             self.gguf_writer.add_q_lora_rank(q_lora_rank)
         if (kv_lora_rank := self.find_hparam(["kv_lora_rank", "n_lora_kv"], optional=False)) is not None:
             self.gguf_writer.add_kv_lora_rank(kv_lora_rank)
+=======
+        if (q_lora_rank := self.find_hparam(["q_lora_rank", "n_lora_q"], optional=True)) is not None:
+            self.gguf_writer.add_q_lora_rank(q_lora_rank)
+        # To enable MLA KV cache, MLA needs to be converted into MQA with larger heads, then decompresses to MHA
+        kv_lora_rank = self.find_hparam(["kv_lora_rank", "n_lora_kv"], optional=False)
+        self.gguf_writer.add_kv_lora_rank(kv_lora_rank)
+>>>>>>> 3688c4f504f8e336663157bcc6e0af78d617420c
 
         # MLA head dimensions
         # Support HuggingFace naming: qk_nope_head_dim, qk_rope_head_dim, v_head_dim
         qk_nope_head_dim = self.hparams.get("qk_nope_head_dim")
+<<<<<<< HEAD
         qk_rope_head_dim = self.hparams.get("qk_rope_head_dim")
         v_head_dim = self.hparams.get("v_head_dim")
         # To enable MLA KV cache, MLA needs to be converted into MQA with larger heads, then decompresses to MHA
@@ -5134,10 +5149,23 @@ class KimiLinearModel(TextModel):
         if "n_embd_head_k_mla" in self.hparams:
             self.gguf_writer.add_key_length_mla(self.hparams["n_embd_head_k_mla"])
         elif qk_nope_head_dim is not None and qk_rope_head_dim is not None:
+=======
+        # Rotation - use qk_rope_head_dim for Kimi
+        qk_rope_head_dim = self.find_hparam(["qk_rope_head_dim", "n_rot"], optional=False)
+        self.gguf_writer.add_rope_dimension_count(qk_rope_head_dim)
+        self.gguf_writer.add_key_length(kv_lora_rank + qk_rope_head_dim)
+        v_head_dim = self.hparams.get("v_head_dim")
+
+        # Calculate n_embd_head_k_mla = qk_nope_head_dim + qk_rope_head_dim
+        if (n_embd_head_k_mla := self.find_hparam(["n_embd_head_k_mla"], optional=True)) is not None:
+            self.gguf_writer.add_key_length_mla(n_embd_head_k_mla)
+        elif qk_nope_head_dim is not None:
+>>>>>>> 3688c4f504f8e336663157bcc6e0af78d617420c
             n_embd_head_k_mla = qk_nope_head_dim + qk_rope_head_dim
             self.gguf_writer.add_key_length_mla(n_embd_head_k_mla)
 
         # n_embd_head_v_mla = v_head_dim
+<<<<<<< HEAD
         if "n_embd_head_v_mla" in self.hparams:
             self.gguf_writer.add_value_length_mla(self.hparams["n_embd_head_v_mla"])
         elif v_head_dim is not None:
@@ -5171,6 +5199,21 @@ class KimiLinearModel(TextModel):
         # Routed scaling factor (expert_weights_scale = 2.446 for Kimi)
         if (routed_scaling_factor := self.find_hparam(["routed_scaling_factor"], optional=False)) is not None:
             self.gguf_writer.add_expert_weights_scale(routed_scaling_factor)
+=======
+        if (n_embd_head_v_mla := self.hparams.get("n_embd_head_v_mla")) is not None:
+            self.gguf_writer.add_value_length_mla(n_embd_head_v_mla)
+        elif v_head_dim is not None:
+            self.gguf_writer.add_value_length_mla(v_head_dim)
+
+        # moe_intermediate_size (1024 for Kimi)
+        self.gguf_writer.add_expert_feed_forward_length(self.hparams["moe_intermediate_size"])
+        # num_shared_experts (1 for Kimi)
+        self.gguf_writer.add_expert_shared_count(self.hparams["num_shared_experts"])
+        # first_k_dense_replace (1 for Kimi - first layer uses dense MLP)
+        self.gguf_writer.add_leading_dense_block_count(self.hparams["first_k_dense_replace"])
+        # Routed scaling factor (expert_weights_scale = 2.446 for Kimi)
+        self.gguf_writer.add_expert_weights_scale(self.hparams["routed_scaling_factor"])
+>>>>>>> 3688c4f504f8e336663157bcc6e0af78d617420c
 
     def prepare_tensors(self):
         super().prepare_tensors()
@@ -5216,7 +5259,11 @@ class KimiLinearModel(TextModel):
 
         # process the experts separately
         if name.find("block_sparse_moe.experts") != -1:
+<<<<<<< HEAD
             n_experts = self.hparams.get("num_local_experts", self.hparams.get("num_experts"))
+=======
+            n_experts = self.find_hparam(["num_local_experts", "num_experts"], optional=False)
+>>>>>>> 3688c4f504f8e336663157bcc6e0af78d617420c
             assert bid is not None
 
             if self._experts is None:
@@ -5226,7 +5273,10 @@ class KimiLinearModel(TextModel):
 
             if len(self._experts[bid]) >= n_experts * 3:
                 # merge the experts into a single 3d tensor
+<<<<<<< HEAD
                 tensors = []
+=======
+>>>>>>> 3688c4f504f8e336663157bcc6e0af78d617420c
                 # w1: gate, w2: down, w3: up
                 for wid, tname in [("w1", gguf.MODEL_TENSOR.FFN_GATE_EXP),
                                    ("w2", gguf.MODEL_TENSOR.FFN_DOWN_EXP),
@@ -5236,30 +5286,49 @@ class KimiLinearModel(TextModel):
                         ename = f"model.layers.{bid}.block_sparse_moe.experts.{xid}.{wid}.weight"
                         datas.append(self._experts[bid][ename])
                         del self._experts[bid][ename]
+<<<<<<< HEAD
 
                     data_torch = torch.stack(datas, dim=0)
                     new_name = self.format_tensor_name(tname, bid)
                     tensors.append((new_name, data_torch))
                 return tensors
             return []
+=======
+                    data_torch = torch.stack(datas, dim=0)
+                    new_name = self.format_tensor_name(tname, bid)
+                    yield from super().modify_tensors(data_torch, new_name, bid)
+            return
+>>>>>>> 3688c4f504f8e336663157bcc6e0af78d617420c
 
         # note: MLA with the absorption optimization, needs these two split and k_b_proj transposed
         if name.endswith("kv_b_proj.weight"):
             name_kb = name.replace("kv_b_proj", "k_b_proj")
             name_vb = name.replace("kv_b_proj", "v_b_proj")
             n_head_kv = self.hparams["num_key_value_heads"]
+<<<<<<< HEAD
             v_head_dim = self.hparams["v_head_dim"]
+=======
+            v_head_dim = self.find_hparam(["n_embd_head_v_mla", "v_head_dim"], optional=False)
+>>>>>>> 3688c4f504f8e336663157bcc6e0af78d617420c
             qk_nope_head_dim = self.hparams["qk_nope_head_dim"]
             logger.info("Split kv_b n_head_kv %d\n" % n_head_kv)
             assert data_torch.shape[0] == n_head_kv * (v_head_dim + qk_nope_head_dim)
             kv_b = data_torch.view(n_head_kv, v_head_dim + qk_nope_head_dim, data_torch.shape[-1])
             k_b, v_b = torch.split(kv_b, [qk_nope_head_dim, v_head_dim], dim=1)
             k_b = k_b.transpose(1, 2)
+<<<<<<< HEAD
             return [(self.map_tensor_name(name_kb), k_b), (self.map_tensor_name(name_vb), v_b)]
 
         mapped_name = self.map_tensor_name(name)
         logger.info(f"Returning {mapped_name}: shape after = {tuple(data_torch.shape)}")
         return [(mapped_name, data_torch)]
+=======
+            yield from super().modify_tensors(k_b, name_kb, bid)
+            yield from super().modify_tensors(v_b, name_vb, bid)
+            return
+
+        yield from super().modify_tensors(data_torch, name, bid)
+>>>>>>> 3688c4f504f8e336663157bcc6e0af78d617420c
 
 
 @ModelBase.register("InternLM2ForCausalLM")
@@ -9055,6 +9124,7 @@ class GraniteMoeModel(GraniteModel):
             gate, up = data_torch.split(ffn_dim, dim=-2)
             yield from ModelBase.modify_tensors(self, gate, self.format_tensor_name(gguf.MODEL_TENSOR.FFN_GATE_EXP, bid), bid)
             yield from ModelBase.modify_tensors(self, up, self.format_tensor_name(gguf.MODEL_TENSOR.FFN_UP_EXP, bid), bid)
+            return
 
         has_experts = bool(self.hparams.get('num_local_experts'))
 
@@ -9161,13 +9231,16 @@ class GraniteHybridModel(Mamba2Model, GraniteMoeModel):
             name.endswith("block_sparse_moe.input_linear.weight")
             or "shared_mlp" in name
         ):
-            return GraniteMoeModel.modify_tensors(self, data_torch, name, bid)
+            yield from GraniteMoeModel.modify_tensors(self, data_torch, name, bid)
+            return
 
         # Determine whether this is a mamba layer or an attention layer
         if bid in self._ssm_layers:
-            return Mamba2Model.modify_tensors(self, data_torch, name, bid)
+            yield from Mamba2Model.modify_tensors(self, data_torch, name, bid)
+            return
         elif bid in self._attn_layers:
-            return GraniteMoeModel.modify_tensors(self, data_torch, name, bid)
+            yield from GraniteMoeModel.modify_tensors(self, data_torch, name, bid)
+            return
         yield from ModelBase.modify_tensors(self, data_torch, name, bid)
 
     def set_gguf_parameters(self):
