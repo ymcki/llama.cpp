@@ -393,6 +393,14 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
     ggml_build_forward_expand(gf, cur);
 }
 
+// Helper to get a slice along dimension 2 (n_chunks dimension)
+static ggml_tensor * get_slice_2d(ggml_context * ctx, ggml_tensor * t, int64_t chunk) {
+    return ggml_view_4d(ctx, t,
+        t->ne[0], t->ne[1], 1, t->ne[3],
+        t->nb[1], t->nb[2], t->nb[3],
+        chunk * t->nb[2]);
+}
+
 /*
     This is a ggml implementation of the naive_chunk_kda function of
     https://github.com/fla-org/flash-linear-attention/blob/main/fla/ops/kda/naive.py
@@ -408,11 +416,6 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_kimi_linear::build_kda_chunkin
         ggml_tensor * identity,
         ggml_tensor * diag_mask,
         int           il) {
-    GGML_ASSERT(ggml_is_contiguous(q));
-    GGML_ASSERT(ggml_is_contiguous(k));
-    GGML_ASSERT(ggml_is_contiguous(v));
-    GGML_ASSERT(ggml_is_contiguous(gk));
-    GGML_ASSERT(ggml_is_contiguous(beta));
     GGML_ASSERT(ggml_is_contiguous(state));
 
     const int64_t S_k      = q->ne[0];
@@ -658,27 +661,14 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_kimi_linear::build_kda_chunkin
     cb(new_state, "new_state", il);
 
     for (int64_t chunk = 0; chunk < n_chunks; chunk++) {
-// extract one chunk worth of data
-        auto chunkify = [=](ggml_tensor * t) {
-                    return ggml_cont(ctx0, ggml_view_4d(ctx0, t, t->ne[0], chunk_size, 1, t->ne[3],
-                t->nb[1], t->nb[2], t->nb[3], t->nb[2] * chunk));
-        };
-        auto chunkify_A = [=](ggml_tensor * t) {
-                    return ggml_cont(ctx0, ggml_view_4d(ctx0, t, chunk_size, chunk_size, 1, t->ne[3],
-                t->nb[1], t->nb[2], t->nb[3], t->nb[2] * chunk));
-        };
+        ggml_tensor * k_chunk = get_slice_2d(ctx0, k, chunk);
+        ggml_tensor * q_chunk = get_slice_2d(ctx0, q, chunk);
+        ggml_tensor * vb_chunk = get_slice_2d(ctx0, vb, chunk);
 
-
-// k [S,BT,NT,H*B] => k_chunk [S,BT,1,H*B]
-        ggml_tensor * k_chunk = chunkify(k);
-        ggml_tensor * q_chunk = chunkify(q);
-        ggml_tensor * vb_chunk = chunkify(vb);
-
-// gk_cumsum [S,BT,NT,H*B] => gk_cs_chunk [S,BT,1,H*B]
-        ggml_tensor * gk_cs_chunk = chunkify(gk_cumsum);
-        ggml_tensor * k_cumdecay_chunk = chunkify(k_cumdecay);
+        ggml_tensor * gk_cs_chunk = ggml_cont(ctx0, get_slice_2d(ctx0, gk_cumsum, chunk));
+        ggml_tensor * k_cumdecay_chunk = get_slice_2d(ctx0, k_cumdecay, chunk);
         ggml_tensor * gkexp_chunk = ggml_exp(ctx0, gk_cs_chunk);
-        ggml_tensor * Aqk_chunk = chunkify_A(Aqk);
+        ggml_tensor * Aqk_chunk = get_slice_2d(ctx0, Aqk, chunk);
 
         ggml_tensor * state_t = ggml_cont_4d(ctx0, ggml_permute(ctx0, new_state, 1, 0, 2, 3), S_v, S_v, 1, H_v * n_seqs);
 
@@ -753,12 +743,8 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_kimi_linear::build_kda_autoreg
     ggml_tensor * beta,
     ggml_tensor * state,
     int il) {
-    GGML_ASSERT(ggml_is_contiguous(q));
-    GGML_ASSERT(ggml_is_contiguous(k));
     GGML_ASSERT(ggml_is_contiguous(v));
     GGML_ASSERT(ggml_is_contiguous(gk));
-    GGML_ASSERT(ggml_is_contiguous(beta));
-    GGML_ASSERT(ggml_is_contiguous(state));
 
     const int64_t S_k      = q->ne[0];
     const int64_t H_k      = q->ne[1];
