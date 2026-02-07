@@ -611,11 +611,11 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_kimi_linear::build_kda_chunkin
             }
             Aqk_block = ggml_scale(ctx0, Aqk_block, scale); // scale q
 
-            // Accumulate into Akk at position [j_start:j_end, i_start:i_end]
-            Akk = ggml_acc(ctx0, Akk, Akk_block,
+            // Copy to Akk at position [j_start:j_end, i_start:i_end]
+            Akk = ggml_set(ctx0, Akk, Akk_block,
                 Akk->nb[1], Akk->nb[2], Akk->nb[3],
                 i_start * Akk->nb[0] + j_start * Akk->nb[1]);
-            Aqk = ggml_acc(ctx0, Aqk, Aqk_block,
+            Aqk = ggml_set(ctx0, Aqk, Aqk_block,
                 Aqk->nb[1], Aqk->nb[2], Aqk->nb[3],
                 i_start * Aqk->nb[0] + j_start * Aqk->nb[1]);
         }
