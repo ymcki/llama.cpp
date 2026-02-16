@@ -1,5 +1,4 @@
 #include "models.h"
-#include "llama-impl.h"
 
 #define CHUNK_SIZE 64
 
@@ -135,7 +134,6 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
 
         kq = ggml_tri(ctx0, kq, GGML_TRI_TYPE_LOWER_DIAG);
         cb(kq, "kq", il);
-//        LLAMA_LOG_INFO("kq = [%ld, %ld, %ld, %ld]\n", kq->ne[0], kq->ne[1], kq->ne[2], kq->ne[3]);
     } else {
         ggml_tensor * g_cs_i = g_cs;
         ggml_tensor * g_cs_j = ggml_reshape_4d(ctx0, g_cs, 1, CS, n_chunks, H_v * n_seqs);
