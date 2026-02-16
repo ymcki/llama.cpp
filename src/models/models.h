@@ -321,7 +321,7 @@ struct llm_build_jamba : public llm_build_mamba_base {
 };
 
 // TODO: derive llm_build_delta_net_base instead
-struct llm_build_kimi_linear : public llm_build_mamba_base {
+struct llm_build_kimi_linear : public llm_build_delta_net_base {
     llm_build_kimi_linear(const llama_model & model, const llm_graph_params & params);
 
     std::pair<ggml_tensor *, ggml_tensor *> build_kda_autoregressive(
