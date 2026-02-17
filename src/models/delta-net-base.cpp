@@ -113,7 +113,6 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
     
         decay_mask = ggml_tri(ctx0, decay_mask, GGML_TRI_TYPE_LOWER_DIAG);
         decay_mask = ggml_exp(ctx0, decay_mask);
-        decay_mask = ggml_tri(ctx0, decay_mask, GGML_TRI_TYPE_LOWER_DIAG);
         cb(decay_mask, "decay_masked", il);
     
         // decay_mask [S_k,BT_j,BT_i,CHB] *Note* second and third chunk_sizes are switched
@@ -280,7 +279,7 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
         // last_recurrent_state = last_recurrent_state * g_last + kgdmulvnew
         ggml_tensor * ch_g_last_exp = nullptr;
         if (kda) {
-            ch_g_last_exp = ggml_cont(ctx0, ggml_transpose(ctx0, get_slice_2d(ctx0, g_last_exp, chunk)));
+            ch_g_last_exp = ggml_transpose(ctx0, get_slice_2d(ctx0, g_last_exp, chunk));
         } else {
             ch_g_last_exp = get_slice_2d(ctx0, g_last_exp, chunk);
         }
