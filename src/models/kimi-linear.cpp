@@ -171,6 +171,9 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
             Kcur = ggml_l2_norm(ctx0, Kcur, eps_norm);
             beta = ggml_sigmoid(ctx0, beta);
 
+            beta = ggml_reshape_4d(ctx0, beta,        1, n_head, n_seq_tokens, n_seqs);
+            g1   = ggml_reshape_4d(ctx0, g1,   head_dim, n_head, n_seq_tokens, n_seqs);
+
             // Choose between build_delta_net_chunking and build_delta_net_recurrent based on n_tokens
             std::pair<ggml_tensor *, ggml_tensor *> attn_out = n_seq_tokens == 1 ?
                 build_delta_net_autoregressive(Qcur, Kcur, Vcur, g1, beta, state, il) :
