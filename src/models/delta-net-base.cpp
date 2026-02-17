@@ -184,7 +184,7 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
     cb(k_cd, "k_cumdecay", il);
 
     // [1, CS, n_chunks, H_k * n_seqs] KDA: [S_k, CS, n_chunks, H_k * n_seqs]
-    ggml_tensor * g_exp_t = ggml_transpose(ctx0, g_exp);
+    ggml_tensor * g_exp_t = ggml_cont(ctx0, ggml_transpose(ctx0, g_exp));
     ggml_tensor * q_g_exp = ggml_mul(ctx0, q, g_exp_t);
 
     // vectorized calculation of key_gdiff
@@ -216,7 +216,7 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
     ggml_tensor * g_diff = ggml_neg(ctx0, ggml_sub(ctx0, g_cs, g_last));
     cb(g_diff, "g_diff", il);
 
-    ggml_tensor * g_diff_exp_t = ggml_transpose(ctx0, ggml_exp(ctx0, g_diff));
+    ggml_tensor * g_diff_exp_t = ggml_cont(ctx0, ggml_transpose(ctx0, ggml_exp(ctx0, g_diff)));
 
     // [S_k, CS, n_chunks, H_v * n_seqs]
     ggml_tensor * kg = ggml_mul(ctx0, k, g_diff_exp_t);
