@@ -36,13 +36,10 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
     GGML_ASSERT(k->ne[0] == S_k && k->ne[1] == H_k && k->ne[2] == n_tokens && k->ne[3] == n_seqs);
     GGML_ASSERT(v->ne[0] == S_v && v->ne[1] == H_v && v->ne[2] == n_tokens && v->ne[3] == n_seqs);
 
-    if (kda) {
-        GGML_ASSERT(g->ne[0] == S_k && g->ne[1] == H_v && g->ne[2] == n_tokens && g->ne[3] == n_seqs);
-    } else {
-        GGML_ASSERT(g->ne[0] == H_v && g->ne[1] == n_tokens && g->ne[2] == n_seqs);
-    }
-    GGML_ASSERT(b->ne[0] == H_v && b->ne[2] == n_tokens && b->ne[3] == n_seqs);
-    GGML_ASSERT(s->ne[0] == S_v && s->ne[1] == S_v && s->ne[2] == H_v && s->ne[3] == n_seqs);
+    GGML_ASSERT(g->ne[0] == 1   || g->ne[0] == S_v);
+    GGML_ASSERT(                   g->ne[1] == H_v && g->ne[2] == n_tokens && g->ne[3] == n_seqs);
+    GGML_ASSERT(b->ne[0] == 1   && b->ne[1] == H_v && b->ne[2] == n_tokens && b->ne[3] == n_seqs);
+    GGML_ASSERT(s->ne[0] == S_v && s->ne[1] == S_v && s->ne[2] == H_v      && s->ne[3] == n_seqs);
 
     const float scale = 1.0f / sqrtf(S_k);
 
@@ -57,12 +54,8 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
     q = ggml_permute(ctx0, q, 0, 2, 1, 3); // [S_k, n_tokens, H_k, n_seqs]
     k = ggml_permute(ctx0, k, 0, 2, 1, 3); // [S_k, n_tokens, H_k, n_seqs]
     v = ggml_permute(ctx0, v, 0, 2, 1, 3); // [S_v, n_tokens, H_v, n_seqs]
-    if (kda) {
-        g = ggml_permute(ctx0, g, 0, 2, 1, 3); // [S_k, n_tokens, H_v, n_seqs]
-    } else {
-        g = ggml_permute(ctx0, g, 2, 1, 3, 0); // [  1, n_tokens, H_v, n_seqs]
-    }
-    b = ggml_permute(ctx0, b, 2, 0, 1, 3); // [  1, n_tokens, H_v, n_seqs]
+    g = ggml_permute(ctx0, g, 0, 2, 1, 3); // [g_0, n_tokens, H_v, n_seqs]
+    b = ggml_permute(ctx0, b, 0, 2, 1, 3); // [  1, n_tokens, H_v, n_seqs]
 
     const int CS = CHUNK_SIZE;
 
@@ -87,16 +80,12 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
     v   = ggml_reshape_4d(ctx0, v,   S_v, CS, n_chunks, H_v * n_seqs);
     v_b = ggml_reshape_4d(ctx0, v_b, S_v, CS, n_chunks, H_v * n_seqs);
 
-    if (kda) {
-        g = ggml_reshape_4d(ctx0, g, S_k, CS, n_chunks, H_v * n_seqs);
-        g = ggml_cont(ctx0, ggml_transpose(ctx0, g));
-    } else {
-        g = ggml_reshape_4d(ctx0, g, CS, 1, n_chunks, H_v * n_seqs);
-    }
-    b = ggml_reshape_4d(ctx0, b, 1, CS, n_chunks, H_v * n_seqs);
+    g = ggml_reshape_4d(ctx0, g, g->ne[0], CS, n_chunks, H_v * n_seqs);
+    b = ggml_reshape_4d(ctx0, b, 1,        CS, n_chunks, H_v * n_seqs);
 
-    // [CS, 1, n_chunks, H_v * n_seqs]
-    ggml_tensor * g_cs = ggml_cumsum(ctx0, g);
+    // [CS, g_0, n_chunks, H_v * n_seqs]
+    // TODO: extend ggml_cumsum with axis parameter to avoid transpose
+    ggml_tensor * g_cs = ggml_cumsum(ctx0, ggml_cont(ctx0, ggml_transpose(ctx0, g)));
     cb(g_cs, "g_cs", il);
 
     ggml_tensor * kb = nullptr;
@@ -105,29 +94,30 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
         const int64_t CHB = n_chunks * H_k * n_seqs;
         ggml_tensor * g_cs_i = ggml_reshape_4d(ctx0, g_cs, CS, 1, S_k, CHB);  // [chunk_size, 1, S_k, CHB]
         ggml_tensor * g_cs_j = ggml_reshape_4d(ctx0, g_cs, 1, CS, S_k, CHB);  // [1, chunk_size, S_k, CHB]
-    
+
         g_cs_j = ggml_repeat_4d(ctx0, g_cs_j, CS, CS, S_k, CHB);  // [1, chunk_size, S_k, CHB] -> [chunk_size, chunk_size, S_k, CHB]
         // decay_mask [chunk_size,chunk_size,S_k,CHB]
         ggml_tensor * decay_mask = ggml_sub(ctx0, g_cs_j, g_cs_i);
         cb(decay_mask, "decay_mask", il);
-    
+
         decay_mask = ggml_tri(ctx0, decay_mask, GGML_TRI_TYPE_LOWER_DIAG);
         decay_mask = ggml_exp(ctx0, decay_mask);
         cb(decay_mask, "decay_masked", il);
-    
+
         // decay_mask [S_k,BT_j,BT_i,CHB] *Note* second and third chunk_sizes are switched
         decay_mask = ggml_cont_4d(ctx0, ggml_permute(ctx0, decay_mask, 2, 1, 0, 3), S_k, CS, CS, CHB);
-    
+
         ggml_tensor * k_b_i = ggml_reshape_4d(ctx0, k_b, S_k, CS, 1, CHB);
-        ggml_tensor * k_j = ggml_reshape_4d(ctx0, k, S_k, 1, CS, CHB);
-        ggml_tensor * q_i = ggml_reshape_4d(ctx0, q, S_k, CS, 1, CHB);
-    
+        ggml_tensor * k_j   = ggml_reshape_4d(ctx0, k,   S_k, 1, CS, CHB);
+        ggml_tensor * q_i   = ggml_reshape_4d(ctx0, q,   S_k, CS, 1, CHB);
+
         ggml_tensor * decay_k_b_i = ggml_mul(ctx0, decay_mask, k_b_i);
-        ggml_tensor * decay_q_i = ggml_mul(ctx0, decay_mask, q_i);
-    
+        ggml_tensor * decay_q_i   = ggml_mul(ctx0, decay_mask, q_i);
+
         // decay_k_i [S.BT,BT,CHB] @ k_j [S,1,BT,CHB] = Akk [BT,1,BT,CHB]
         kb = ggml_mul_mat(ctx0, decay_k_b_i, k_j);
-        kq = ggml_mul_mat(ctx0, decay_q_i, k_j);
+        kq = ggml_mul_mat(ctx0, decay_q_i,   k_j);
+
         kb = ggml_cont(ctx0, ggml_transpose(ctx0, ggml_reshape_4d(ctx0, kb, CS, CS, n_chunks, H_v * n_seqs)));
         kq = ggml_cont(ctx0, ggml_transpose(ctx0, ggml_reshape_4d(ctx0, kq, CS, CS, n_chunks, H_v * n_seqs)));
 
@@ -136,16 +126,16 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
     } else {
         ggml_tensor * g_cs_i = g_cs;
         ggml_tensor * g_cs_j = ggml_reshape_4d(ctx0, g_cs, 1, CS, n_chunks, H_v * n_seqs);
-    
+
         g_cs_j = ggml_repeat_4d(ctx0, g_cs_j, CS, CS, n_chunks, H_v * n_seqs);
-    
+
         // [CS, CS, n_chunks, H_v * n_seqs]
         ggml_tensor * decay_mask;
         decay_mask = ggml_sub(ctx0, g_cs_j, g_cs_i);
         decay_mask = ggml_tri(ctx0, decay_mask, GGML_TRI_TYPE_LOWER_DIAG);
         decay_mask = ggml_exp(ctx0, decay_mask);
         cb(decay_mask, "decay_mask", il);
-    
+
         // [CS, CS, n_chunks, H_k * n_seqs]
         kb = ggml_mul_mat(ctx0, k,  k_b);
         kb = ggml_mul    (ctx0, kb, decay_mask);
@@ -218,9 +208,9 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
     // TODO: remove this cont when CUDA supports non-cont unary ops
     g_last = ggml_cont(ctx0, g_last);
 
-    // [1, 1, n_chunks, H_v * n_seqs] KDA: [1, S_k, n_chunks, H_v * n_seqs]
-    ggml_tensor * g_last_exp = ggml_exp(ctx0, g_last);
-    cb(g_last_exp, "g_last_exp", il);
+    // [1, 1, n_chunks, H_v * n_seqs] KDA: [S_k, 1, n_chunks, H_v * n_seqs]
+    ggml_tensor * g_last_exp_t = ggml_transpose(ctx0, ggml_exp(ctx0, g_last));
+    cb(g_last_exp_t, "g_last_exp_t", il);
 
     // [CS, 1, n_chunks, H_v * n_seqs] KDA: [CS, S_k, n_chunks, H_v * n_seqs]
     ggml_tensor * g_diff = ggml_neg(ctx0, ggml_sub(ctx0, g_cs, g_last));
@@ -277,13 +267,9 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
         ggml_tensor * kgv = ggml_mul_mat(ctx0, ch_kg_t, v_t_new); // [S_k, S_v, 1, H_k * n_seqs]
 
         // last_recurrent_state = last_recurrent_state * g_last + kgdmulvnew
-        ggml_tensor * ch_g_last_exp = nullptr;
-        if (kda) {
-            ch_g_last_exp = ggml_transpose(ctx0, get_slice_2d(ctx0, g_last_exp, chunk));
-        } else {
-            ch_g_last_exp = get_slice_2d(ctx0, g_last_exp, chunk);
-        }
-        s_t = ggml_mul(ctx0, s_t, ch_g_last_exp);
+        ggml_tensor * ch_g_last_exp_t = get_slice_2d(ctx0, g_last_exp_t, chunk);
+
+        s_t = ggml_mul(ctx0, s_t, ch_g_last_exp_t);
         s_t = ggml_add(ctx0, s_t, kgv);
         cb(s_t, "dnet_add_ch_state", il);
     }
@@ -318,7 +304,6 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
 
     const int64_t S_v = v->ne[0];
     const int64_t H_v = v->ne[1];
-    const bool kda = (g->ne[0] == S_k && g->ne[1] == H_k);
 
     GGML_ASSERT(n_tokens == 1);
 
@@ -329,13 +314,10 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
     GGML_ASSERT(k->ne[0] == S_k && k->ne[1] == H_k && k->ne[2] == n_tokens && k->ne[3] == n_seqs);
     GGML_ASSERT(v->ne[0] == S_v && v->ne[1] == H_v && v->ne[2] == n_tokens && v->ne[3] == n_seqs);
 
-    if (kda) {
-        GGML_ASSERT(g->ne[0] == S_k && g->ne[1] == H_v && g->ne[2] == n_tokens && g->ne[3] == n_seqs);
-    } else {
-        GGML_ASSERT(g->ne[0] == H_v && g->ne[1] == n_tokens && g->ne[2] == n_seqs);
-    }
-    GGML_ASSERT(b->ne[0] == H_v && b->ne[2] == n_tokens && b->ne[3] == n_seqs);
-    GGML_ASSERT(s->ne[0] == S_v && s->ne[1] == S_v && s->ne[2] == H_v && s->ne[3] == n_seqs);
+    GGML_ASSERT(g->ne[0] == 1   || g->ne[0] == S_v);
+    GGML_ASSERT(                   g->ne[1] == H_v && g->ne[2] == n_tokens && g->ne[3] == n_seqs);
+    GGML_ASSERT(b->ne[0] == 1   && b->ne[1] == H_v && b->ne[2] == n_tokens && b->ne[3] == n_seqs);
+    GGML_ASSERT(s->ne[0] == S_v && s->ne[1] == S_v && s->ne[2] == H_v      && s->ne[3] == n_seqs);
 
     const float scale = 1.0f / sqrtf(S_k);
 
@@ -351,17 +333,10 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
     cb(b, "b_in", il);
     cb(g, "g_in", il);
 
-    if (kda) {
-        // KDA: g [S_k, H_k, 1, n_seqs] -> [S_k, 1, H_k, n_seqs] -> [1, S_k, H_k, n_seqs]
-        // For state multiplication, need [1, S_k, H_v, n_seqs] to broadcast over V only
-        g = ggml_cont(ctx0, ggml_transpose(ctx0, ggml_reshape_4d(ctx0, g, S_k, 1, H_k, n_seqs)));
-    } else {
-        // GDA: g [H_v, 1, n_seqs] -> [1, 1, H_k, n_seqs]
-        // For state multiplication, broadcasts over both K and V
-        g = ggml_reshape_4d(ctx0, g, 1, 1, H_v, n_seqs);
-    }
-
-    b = ggml_reshape_4d(ctx0, b, 1, 1, H_v, n_seqs);
+    // GDA: [1,  1,  H_v, n_seqs]
+    // KDA: [1, S_k, H_v, n_seqs]
+    g = ggml_reshape_4d(ctx0, g, 1, g->ne[0], H_v, n_seqs);
+    b = ggml_reshape_4d(ctx0, b, 1,        1, H_v, n_seqs);
 
     // [S_v, S_v, H_v, n_seqs]
     g = ggml_exp(ctx0, g);
