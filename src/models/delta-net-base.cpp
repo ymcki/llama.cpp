@@ -227,7 +227,7 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
     ggml_tensor * g_diff = ggml_neg(ctx0, ggml_sub(ctx0, g_cs, g_last));
     cb(g_diff, "g_diff", il);
 
-    ggml_tensor * g_diff_exp_t = ggml_cont(ctx0, ggml_transpose(ctx0, ggml_exp(ctx0, g_diff)));
+    ggml_tensor * g_diff_exp_t = ggml_transpose(ctx0, ggml_exp(ctx0, g_diff));
 
     // [S_k, CS, n_chunks, H_v * n_seqs]
     ggml_tensor * kg = ggml_mul(ctx0, k, g_diff_exp_t);
@@ -298,7 +298,6 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
             ggml_row_size(v->type, S_v * CS * n_chunks),
             ggml_row_size(v->type, S_v * CS * n_chunks * H_v), 0);
     o = ggml_permute  (ctx0, o, 0, 2, 1, 3); // [S_v, H_v, n_tokens, n_seqs]
-    o = ggml_cont(ctx0, o);
     s = ggml_transpose(ctx0, s_t);
     cb(s, "output_state", il);
 
@@ -398,7 +397,6 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
     ggml_tensor * o   = ggml_sum_rows(ctx0, s_q);
 
     o = ggml_permute  (ctx0, o, 2, 0, 1, 3); // [S_v, H_v, n_tokens, n_seqs]
-    o = ggml_cont(ctx0, o);
     s = ggml_transpose(ctx0, s_t);           // [S_v, S_v, H_v, n_seqs]
 
     return {o, s};

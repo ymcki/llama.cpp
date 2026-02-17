@@ -176,7 +176,7 @@ llm_build_kimi_linear::llm_build_kimi_linear(const llama_model & model, const ll
                 build_delta_net_autoregressive(Qcur, Kcur, Vcur, g1, beta, state, il) :
                 build_delta_net_chunking(Qcur, Kcur, Vcur, g1, beta, state, il);
 
-            ggml_tensor * output = attn_out.first;
+            ggml_tensor * output = ggml_cont(ctx0, attn_out.first);
             ggml_tensor * new_state = attn_out.second;
             cb(output, "attn_output", il);
             cb(new_state, "new_state", il);
