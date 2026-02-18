@@ -105,18 +105,19 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_delta_net_base::build_delta_ne
         // decay_mask [S_k,BT_j,BT_i,CHB] *Note* second and third chunk_sizes are switched
         decay_mask = ggml_cont_4d(ctx0, ggml_permute(ctx0, decay_mask, 2, 1, 0, 3), S_k, CS, CS, CHB);
 
-        ggml_tensor * k_b_i = ggml_reshape_4d(ctx0, k_b, S_k, CS, 1, CHB);
-        ggml_tensor * k_j   = ggml_reshape_4d(ctx0, k,   S_k, 1, CS, CHB);
-        ggml_tensor * q_i   = ggml_reshape_4d(ctx0, q,   S_k, CS, 1, CHB);
+        ggml_tensor * k_i = ggml_reshape_4d(ctx0, k, S_k, CS, 1, CHB);
+        ggml_tensor * k_j = ggml_reshape_4d(ctx0, k, S_k, 1, CS, CHB);
+        ggml_tensor * q_i = ggml_reshape_4d(ctx0, q, S_k, CS, 1, CHB);
 
-        ggml_tensor * decay_k_b_i = ggml_mul(ctx0, decay_mask, k_b_i);
-        ggml_tensor * decay_q_i   = ggml_mul(ctx0, decay_mask, q_i);
+        ggml_tensor * decay_k_i = ggml_mul(ctx0, decay_mask, k_i);
+        ggml_tensor * decay_q_i = ggml_mul(ctx0, decay_mask, q_i);
 
         // decay_k_i [S.BT,BT,CHB] @ k_j [S,1,BT,CHB] = Akk [BT,1,BT,CHB]
-        kb = ggml_mul_mat(ctx0, decay_k_b_i, k_j);
-        kq = ggml_mul_mat(ctx0, decay_q_i,   k_j);
+        kb = ggml_mul_mat(ctx0, decay_k_i, k_j);
+        kq = ggml_mul_mat(ctx0, decay_q_i, k_j);
 
         kb = ggml_cont(ctx0, ggml_transpose(ctx0, ggml_reshape_4d(ctx0, kb, CS, CS, n_chunks, H_v * n_seqs)));
+        kb = ggml_mul(ctx0, kb, b);
         kq = ggml_cont(ctx0, ggml_transpose(ctx0, ggml_reshape_4d(ctx0, kq, CS, CS, n_chunks, H_v * n_seqs)));
 
         kq = ggml_tri(ctx0, kq, GGML_TRI_TYPE_LOWER_DIAG);
