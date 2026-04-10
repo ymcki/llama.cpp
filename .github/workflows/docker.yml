@@ -22,6 +22,7 @@ concurrency:
 # Fine-grant permission
 # https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#modifying-the-permissions-for-the-github_token
 permissions:
+  contents: read
   packages: write
 
 jobs:
@@ -47,6 +48,9 @@ jobs:
           - { tag: "vulkan", dockerfile: ".devops/vulkan.Dockerfile", platforms: "linux/amd64", full: true, light: true, server: true, free_disk_space: false, runs_on: "ubuntu-22.04" }
           - { tag: "s390x",  dockerfile: ".devops/s390x.Dockerfile",  platforms: "linux/s390x", full: true, light: true, server: true, free_disk_space: false, runs_on: "ubuntu-22.04-s390x" }
           - { tag: "rocm",   dockerfile: ".devops/rocm.Dockerfile",   platforms: "linux/amd64", full: true, light: true, server: true, free_disk_space: true,  runs_on: "ubuntu-22.04" }
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Check out the repo
         uses: actions/checkout@v6
@@ -204,7 +208,7 @@ jobs:
     runs-on: ubuntu-22.04
     permissions:
       contents: write
-
+      packages: write
     steps:
       - name: Clone
         id: checkout
