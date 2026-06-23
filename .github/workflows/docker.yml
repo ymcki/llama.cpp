@@ -138,6 +138,10 @@ jobs:
     needs: [prepare_matrices, create_tag]
 
     runs-on: ${{ matrix.config.runs_on }}
+
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
